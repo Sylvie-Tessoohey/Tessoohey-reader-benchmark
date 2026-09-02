@@ -32,7 +32,7 @@ def fingerprint(data: bytes) -> str:
 
 def reference_payload_sha256(reference: dict) -> str:
     """Approval covers truth, annotation coverage, PDF identity and reference version."""
-    keys=("case_id","reference_version","source","documentary_json","annotations","observation_inventory")
+    keys=("case_id","reference_version","source","documentary_json","annotations","observation_inventory","annotation_status")
     return fingerprint(canonical({k:reference[k] for k in keys}).encode())
 
 
@@ -115,8 +115,10 @@ def observations(document: dict) -> list[dict]:
 
 
 def validate_reference(reference: dict) -> None:
-    if reference.get("reference_schema_version") != "1.0":
+    if reference.get("reference_schema_version") != "1.1":
         raise InputError("Unsupported reference schema version")
+    if reference.get("annotation_status") not in ("incomplete", "complete"):
+        raise InputError("annotation_status must be incomplete or complete")
     if reference.get("status") not in ("candidate", "validated"):
         raise InputError("Reference status must be candidate or validated")
     if reference.get("status") == "validated":
@@ -134,6 +136,8 @@ def validate_reference(reference: dict) -> None:
     if not pages or source.get("page_count") != len(pages):
         raise InputError("Source page geometry must cover the complete PDF")
     doc = reference.get("documentary_json", {})
+    if any(key in doc for key in ("status", "extraction_status", "extraction_id", "extraction_metadata", "errors")):
+        raise InputError("A documentary reference must not contain Reader execution fields")
     if doc.get("schema_version") != "1.0" or not isinstance(doc.get("parts"), list):
         raise InputError("Reference must contain Module 1 schema 1.0 documentary JSON")
     if not isinstance(reference.get("annotations"), dict):
@@ -146,6 +150,20 @@ def validate_reference(reference: dict) -> None:
             raise InputError(f"An ambiguity needs an explanation at {path}")
     if reference.get("observation_inventory") not in ("complete", "incomplete"):
         raise InputError("Declare observation inventory completeness")
+    if reference["annotation_status"] == "complete":
+        def terminal_paths(value, path=""):
+            if isinstance(value, dict) and value:
+                for key, child in value.items():
+                    yield from terminal_paths(child, path+"/"+key.replace("~", "~0").replace("/", "~1"))
+            elif isinstance(value, list) and value:
+                for i, child in enumerate(value):
+                    yield from terminal_paths(child, f"{path}/{i}")
+            else:
+                yield path
+        if reference["observation_inventory"] != "complete" or any(
+            annotation(reference, path) == "unannotated" for path in terminal_paths(doc)
+        ):
+            raise InputError("Complete annotation requires a complete inventory and no unannotated fields")
     ids = []
     for item in observations(doc):
         obs = item["obs"]
@@ -348,10 +366,11 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
     if reference["status"]!="validated":verdict="CANDIDATE_REFERENCE"
     elif produced["status"]!="success":verdict=produced["status"].upper()
     elif counts["critical_error"] or counts["noncritical_error"]:verdict="FAIL"
-    elif counts["ambiguity"] or counts["unannotated"] or reference["observation_inventory"]!="complete":verdict="INCOMPLETE"
+    elif counts["ambiguity"] or counts["unannotated"] or reference["observation_inventory"]!="complete" or reference["annotation_status"]!="complete":verdict="INCOMPLETE"
     else:verdict="PASS"
-    return {"benchmark_schema_version":"1.0","case_id":reference["case_id"],"reference_version":reference["reference_version"],
-            "reference_status":reference["status"],"reader_status":produced["status"],"functional_verdict":verdict,
+    return {"benchmark_schema_version":"1.1","case_id":reference["case_id"],"reference_version":reference["reference_version"],
+            "reference_status":reference["status"],"annotation_status":reference["annotation_status"],
+            "extraction_status":produced["status"],"functional_verdict":verdict,
             "reference_sha256":fingerprint(canonical(reference).encode()),"output_sha256":fingerprint(canonical(produced).encode()),
             "run":run,"observations":{"expected":len(expected),"produced":len(actual),"matched":len(matches),
               "missing":len(expected)-len(matches)-len(amb_e),"ambiguous":len(amb_e),

@@ -23,10 +23,10 @@ def fixtures():
          "parts":[{"id":"p1","type":"laboratory_report","subtype":"blood_test","sections":[
             {"id":"s1","source_title":"Synthetic section","observations":[observation("ALPHA","3",10),observation("BETA","7",40)]}]}],
          "unclassified_elements":[]}
-    ref={"reference_schema_version":"1.0","reference_version":"1","case_id":"synthetic",
-         "status":"validated","validation":{"reviewer":"synthetic-test","validated_at":"2026-01-01"},
+    ref={"reference_schema_version":"1.1","reference_version":"1","case_id":"synthetic",
+         "annotation_status":"complete","status":"validated","validation":{"reviewer":"synthetic-test","validated_at":"2026-01-01"},
          "source":{"sha256":"a"*64,"size_bytes":100,"page_count":2,"pages":[{"width":200,"height":200}]*2},
-         "documentary_json":doc,"annotations":{"":{"status":"verified"}},"observation_inventory":"complete"}
+         "documentary_json":{k:deepcopy(v) for k,v in doc.items() if k!="status"},"annotations":{"":{"status":"verified"}},"observation_inventory":"complete"}
     approve(ref)
     run={"reader_commit":"a"*40,"schema_version":"1.0","provider":"synthetic","model":"fake",
          "parameters":{},"prompt_version":"test","prompt_sha256":"b"*64,"source":deepcopy(ref["source"]),
@@ -43,6 +43,28 @@ def obs(doc):
 
 
 class ComparatorTests(unittest.TestCase):
+    def test_annotation_and_extraction_status_are_independent(self):
+        r,p,m=fixtures();r["status"]="candidate";r["annotation_status"]="incomplete";p["status"]="partial"
+        out=compare(r,p,m)
+        self.assertEqual((out["reference_status"],out["annotation_status"],out["extraction_status"]),
+                         ("candidate","incomplete","partial"))
+
+    def test_false_complete_annotation_is_rejected(self):
+        r,p,m=fixtures();r["annotations"]["/parts"]={"status":"unannotated"};approve(r)
+        with self.assertRaises(InputError):compare(r,p,m)
+
+    def test_runtime_status_is_forbidden_in_documentary_reference(self):
+        r,p,m=fixtures();r["documentary_json"]["status"]="partial";approve(r)
+        with self.assertRaises(InputError):compare(r,p,m)
+
+    def test_annotation_status_change_invalidates_approval(self):
+        r,p,m=fixtures();r["annotation_status"]="incomplete"
+        with self.assertRaises(InputError):compare(r,p,m)
+
+    def test_complete_annotation_does_not_mean_approved(self):
+        r,p,m=fixtures();r["status"]="candidate"
+        self.assertEqual(compare(r,p,m)["functional_verdict"],"CANDIDATE_REFERENCE")
+
     def test_verified_identity_can_pass(self):
         self.assertEqual(compare(*fixtures())["functional_verdict"],"PASS")
 
@@ -53,7 +75,7 @@ class ComparatorTests(unittest.TestCase):
     def test_partial_never_passes(self):
         r,p,m=fixtures();p["status"]="partial"
         result=compare(r,p,m)
-        self.assertEqual(result["reader_status"],"partial")
+        self.assertEqual(result["extraction_status"],"partial")
         self.assertEqual(result["functional_verdict"],"PARTIAL")
 
     def test_swapped_values_stay_with_source_labels(self):
@@ -100,7 +122,7 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(out["observations"]["unexpected"],1)
 
     def test_incomplete_inventory_cannot_call_extra_false(self):
-        r,p,m=fixtures();r["observation_inventory"]="incomplete";approve(r);obs(p).append(observation("GAMMA","2",100))
+        r,p,m=fixtures();r["observation_inventory"]="incomplete";r["annotation_status"]="incomplete";approve(r);obs(p).append(observation("GAMMA","2",100))
         out=compare(r,p,m)
         self.assertEqual(out["functional_verdict"],"INCOMPLETE")
         self.assertEqual(out["dimensions"]["extra_elements"]["unannotated"],1)
@@ -121,7 +143,7 @@ class ComparatorTests(unittest.TestCase):
 
     def test_unannotated_child_not_masked_by_verified_parent(self):
         r,p,m=fixtures();r["annotations"]["/parts/0/sections/0/observations/0/current_result/source_representations/0/source_unit"]={"status":"unannotated"}
-        approve(r)
+        r["annotation_status"]="incomplete";approve(r)
         obs(p)[0]["current_result"]["source_representations"][0]["source_unit"]="unverified"
         out=compare(r,p,m)
         self.assertEqual(out["dimensions"]["unit"]["unannotated"],1)
@@ -134,7 +156,7 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(compare(r,p,m)["dimensions"]["reference_range"]["ambiguity"],1)
 
     def test_missing_annotations_cannot_pass(self):
-        r,p,m=fixtures();r["annotations"]={};approve(r)
+        r,p,m=fixtures();r["annotations"]={};r["annotation_status"]="incomplete";approve(r)
         self.assertEqual(compare(r,p,m)["functional_verdict"],"INCOMPLETE")
 
     def test_pdf_identity_mismatch_is_blocked(self):

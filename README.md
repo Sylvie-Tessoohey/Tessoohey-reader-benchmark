@@ -41,11 +41,15 @@ Exit codes: `0` = functional PASS; `2` = valid comparison with another verdict;
 
 The JSON document contains:
 
-- `reference_schema_version`: `1.0`;
+- `reference_schema_version`: `1.1`;
 - `case_id`, `reference_version`;
-- `status`: `candidate` or `validated`;
+- `status`: `candidate` or `validated` (reference approval lifecycle);
+- `annotation_status`: `incomplete` or `complete` (documentary annotation coverage);
 - `source`: `sha256`, `size_bytes`, `page_count`, and `pages` with PDF width/height;
-- `documentary_json`: Module 1 schema 1.0 content, independently authored from the PDF;
+- `documentary_json`: Module 1 schema 1.0 documentary projection, independently authored
+  from the PDF: `schema_version`, `document`, `parts`, `unclassified_elements`;
+  Reader runtime fields (`status`, `extraction_id`, `errors`, `extraction_metadata`)
+  are deliberately absent from this reference projection;
 - `observation_inventory`: `complete` or `incomplete`;
 - `annotations`: JSON pointers into `documentary_json`, each with `status` and optional `note`;
 - `validation`: absent/null for a candidate; for validated references: reviewer,
@@ -56,10 +60,28 @@ is not approval of the whole reference. The nearest ancestor applies, while narr
 uncertainty blocks scoring of affected composite fields. No annotation means unannotated.
 Null or empty expected values assert absence only inside a verified scope.
 
-Approval fingerprints cover the documentary JSON, annotations, source identity, inventory,
+Approval fingerprints cover the documentary JSON, annotations, annotation status, source identity, inventory,
 case and reference version. Do not regenerate an approval automatically after an edit.
 Only an explicit reviewer validation may approve a new reference version. The CLI deliberately
 does not contain an automatic "promote to Gold" command.
+
+## Status vocabulary (envelope/report 1.1)
+
+Human-readable reports display three distinct lines: reference validation, annotation
+completeness, and Reader extraction. JSON reports expose `reference_status`,
+`annotation_status`, and `extraction_status`. The last preserves the upstream Reader
+`status` exactly: `success`, `partial`, or `error`. No Reader changes are required.
+
+`complete` annotation requires a complete observation inventory and no unannotated
+terminal fields (including empty arrays and nulls). Explicit ambiguities may remain
+recorded, but prevent PASS on affected comparisons. Complete annotation does not
+mean approved reference or successful extraction. Real printed report wording such
+as “Compte rendu partiel” remains literal documentary metadata.
+
+Migration from envelope 1.0: remove execution fields from `documentary_json`, repair
+annotation pointers, declare actual annotation completeness, and keep edited references
+as candidates until the new payload is explicitly approved. Existing approval fingerprints
+cannot be reused. Old reports stay unchanged; new reports use schema 1.1.
 
 ## Run manifest
 
@@ -115,7 +137,7 @@ Unannotated fields, incomplete inventories and unresolved matching prevent full 
   the pinned Reader schema. A benchmark PASS is scoped to these checks, never Gate 1 approval.
 - Text transcription/boilerplate quality, field-level geometry of nested references and
   benchmark campaigns across multiple models remain to be expanded.
-- The first references are candidates, with explicitly incomplete annotation scopes.
+- References remain candidates until explicit approval; annotation completeness is tracked separately.
 - Real outputs, references and reports must remain in private storage outside Git. Do not
   upload them to this repository's public Actions artifacts.
 - The first decision checkpoint follows five reference documents and two generic correction
