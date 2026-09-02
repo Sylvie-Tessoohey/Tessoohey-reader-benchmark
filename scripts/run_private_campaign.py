@@ -26,6 +26,18 @@ def digest(value):
                                     separators=(",", ":")).encode()).hexdigest()
 
 
+def verify_git_checkout(root, expected_commit, label):
+    """Require the exact planned commit and reject tracked local modifications."""
+    if not expected_commit:
+        raise SystemExit(f"Campaign plan must pin {label.lower()}_commit")
+    commit=subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    if commit != expected_commit:
+        raise SystemExit(f"{label} checkout differs from the planned exact commit")
+    if subprocess.check_output(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"], text=True).strip():
+        raise SystemExit(f"{label} checkout contains tracked modifications")
+    return commit
+
+
 def verify_prompt(root, plan):
     identity=plan["prompt_identity"]
     expected={"src/tessoohey_reader/ai/openai_provider.py",
@@ -46,12 +58,10 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args=parser.parse_args()
     plan=json.loads(args.plan.read_text())
+    benchmark_root=Path(__file__).resolve().parents[1]
+    benchmark_commit=verify_git_checkout(benchmark_root,plan.get("benchmark_commit"),"Benchmark")
     root=args.reader_checkout.resolve()
-    commit=subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-    if commit != plan["reader_commit"]:
-        raise SystemExit("Reader checkout differs from the planned exact commit")
-    if subprocess.check_output(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"], text=True).strip():
-        raise SystemExit("Reader checkout contains tracked modifications")
+    commit=verify_git_checkout(root,plan.get("reader_commit"),"Reader")
     verify_prompt(root, plan)
     if args.output.exists():
         raise SystemExit("Use a new output directory; existing campaign evidence must not be overwritten")
@@ -88,6 +98,7 @@ def main():
     client=OpenAI(max_retries=0)
     args.output.mkdir(parents=True)
     write(args.output/"environment.json", {"python":sys.version,"reader_commit":commit,
+        "benchmark_commit":benchmark_commit,
         "packages":{k:importlib.metadata.version(k) for k in ("openai","pydantic","PyMuPDF")}})
     summaries=[]
     for case,reference,data,source in prepared:
@@ -122,7 +133,8 @@ def main():
             execution=artifacts.execution_report.model_dump(mode="json")
             write(out/"content.json",content);write(out/"execution-report.json",execution)
             tokens=execution["ai"]["token_usage"]
-            run={"reader_commit":commit,"schema_version":content["schema_version"],"provider":settings.provider,
+            run={"reader_commit":commit,"benchmark_commit":benchmark_commit,
+                 "schema_version":content["schema_version"],"provider":settings.provider,
                  "model":settings.model,"parameters":plan["parameters"],"prompt_version":settings.prompt_version,
                  "prompt_sha256":plan["prompt_sha256"],"prompt_identity":plan["prompt_identity"],
                  "actual_calls":calls,"source":source,"run_date":execution["run_date"],
@@ -139,8 +151,11 @@ def main():
             # A harness error is not an invented Reader extraction_status.
             write(out/"harness-error.json",{"exception_type":type(exc).__name__,"message":str(exc)})
             summaries.append({"case_id":case["case_id"],"campaign_status":"harness_error","extraction_status":None})
-        write(args.output/"campaign-summary.json",{"campaign_id":plan["campaign_id"],"cases":summaries,"gate1_validated":False})
-    print(json.dumps({"campaign_id":plan["campaign_id"],"cases":summaries},ensure_ascii=False))
+        write(args.output/"campaign-summary.json",{"campaign_id":plan["campaign_id"],
+            "benchmark_commit":benchmark_commit,"reader_commit":commit,
+            "cases":summaries,"gate1_validated":False})
+    print(json.dumps({"campaign_id":plan["campaign_id"],"benchmark_commit":benchmark_commit,
+                      "reader_commit":commit,"cases":summaries},ensure_ascii=False))
     return 0 if all(x.get("functional_verdict")=="PASS" for x in summaries) else 2
 
 
