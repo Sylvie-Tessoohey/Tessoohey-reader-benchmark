@@ -14,7 +14,8 @@ This repository contains no production integration, catalogue mapping or real me
   current/historical separation.
 - JSON and Markdown deviation reports; candidate references and partial Reader outputs
   cannot produce a functional PASS.
-- Full commit and real prompt fingerprint required in every run manifest.
+- Exact Reader and benchmark commits plus the real prompt fingerprint are required for a
+  private campaign.
 - Adversarial synthetic tests, including swapped values and misleading marginal multisets.
 
 The first private corpus selection and first candidate reference are separate deliverables.
@@ -88,7 +89,8 @@ cannot be reused. Old reports stay unchanged; new reports use schema 1.1.
 Required fields:
 
 ```text
-reader_commit: exact 40-character commit SHA
+reader_commit: exact 40-character Reader commit SHA
+benchmark_commit: exact 40-character benchmark/comparator commit SHA
 schema_version: 1.0
 provider / model: actual configured provider and model
 parameters: actual inference parameters
@@ -108,17 +110,21 @@ is preserved in the report and checked against available Reader output metadata.
 ## Private campaign harness
 
 `scripts/run_private_campaign.py` runs outside Reader, in a private environment.
-It checks the exact clean Git checkout, fingerprints the instruction/request/schema files,
-requires complete explicitly approved references, and verifies each PDF before calling AI.
-It preserves full private requests/responses, per-call hashes, output and execution report,
-package versions, measured usage, and per-case comparison. Existing outputs cannot be
-overwritten. SDK retries are disabled and recorded to keep attempt accounting explicit.
+It requires exact clean Git checkouts for both the benchmark and Reader, fingerprints the
+Reader instruction/request/schema files, requires complete explicitly approved references,
+and verifies each PDF before calling AI. Both commits are retained in the private environment,
+run manifests and campaign summary. It preserves full private requests/responses, per-call
+hashes, output and execution report, package versions, measured usage, and per-case comparison.
+Existing outputs cannot be overwritten. SDK retries are disabled and recorded to keep attempt
+accounting explicit.
 
-The three-case plan and medical inputs stay private. The harness is prepared and its prompt
-identity guards have synthetic tests; it has not yet been validated by a real campaign.
-Never execute it in this public repository’s GitHub Actions.
+The three-case plan and medical inputs stay private. The harness is prepared and its identity
+guards have synthetic tests; it has not yet been validated by a real campaign. Never execute
+it with real medical inputs in this public repository’s GitHub Actions, and never upload those
+private inputs or outputs as public Actions artifacts.
 
 ```bash
+# Run from the exact benchmark commit named by benchmark_commit in the private plan.
 PYTHONPATH=src python scripts/run_private_campaign.py /private/campaign-plan.json \
   --reader-checkout /private/pinned-reader --output /private/new-campaign
 ```
