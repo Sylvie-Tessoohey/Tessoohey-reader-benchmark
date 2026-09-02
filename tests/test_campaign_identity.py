@@ -1,7 +1,8 @@
-"""The external harness must not relabel a different real prompt."""
+"""The external harness must not relabel a different real prompt or benchmark checkout."""
 import importlib.util
 from pathlib import Path
 import hashlib
+import subprocess
 import tempfile
 import unittest
 
@@ -27,3 +28,28 @@ class IdentityTests(unittest.TestCase):
     def test_empty_prompt_manifest_is_rejected(self):
         identity={'scheme':'reader-prompt-files-v1','files':{}}
         with self.assertRaises(ValueError):module.verify_prompt(Path('.'),{'prompt_identity':identity,'prompt_sha256':module.digest(identity)})
+
+    def test_git_checkout_requires_exact_clean_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            subprocess.run(['git','init','-q'],cwd=root,check=True)
+            (root/'tracked.txt').write_text('one')
+            subprocess.run(['git','add','tracked.txt'],cwd=root,check=True)
+            subprocess.run(['git','-c','user.name=Benchmark Test','-c','user.email=test@example.invalid','commit','-qm','initial'],cwd=root,check=True)
+            commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+            self.assertEqual(module.verify_git_checkout(root,commit,'Benchmark'),commit)
+            with self.assertRaises(SystemExit):module.verify_git_checkout(root,None,'Benchmark')
+            with self.assertRaises(SystemExit):module.verify_git_checkout(root,'0'*40,'Benchmark')
+            (root/'tracked.txt').write_text('dirty')
+            with self.assertRaises(SystemExit):module.verify_git_checkout(root,commit,'Benchmark')
+
+    def test_untracked_private_inputs_do_not_dirty_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            subprocess.run(['git','init','-q'],cwd=root,check=True)
+            (root/'tracked.txt').write_text('one')
+            subprocess.run(['git','add','tracked.txt'],cwd=root,check=True)
+            subprocess.run(['git','-c','user.name=Benchmark Test','-c','user.email=test@example.invalid','commit','-qm','initial'],cwd=root,check=True)
+            commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+            (root/'private-corpus.zip').write_text('not tracked')
+            self.assertEqual(module.verify_git_checkout(root,commit,'Benchmark'),commit)
