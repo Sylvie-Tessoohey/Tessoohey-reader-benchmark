@@ -65,6 +65,22 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();r["status"]="candidate"
         self.assertEqual(compare(r,p,m)["functional_verdict"],"CANDIDATE_REFERENCE")
 
+    def test_range_glyph_ambiguity_does_not_hide_wrong_bound(self):
+        r,p,m=fixtures()
+        ref_range=obs(r["documentary_json"])[0]["reference_ranges"][0]
+        ref_range["source_text"]="0–20"
+        r["annotations"]["/parts/0/sections/0/observations/0/reference_ranges/0/source_text"]={"status":"ambiguous","note":"Dash glyph"}
+        approve(r)
+        obs(p)[0]["reference_ranges"][0]["source_max"]="200"
+        out=compare(r,p,m)
+        self.assertGreater(out["dimensions"]["reference_range"]["critical_error"],0)
+        self.assertGreater(out["dimensions"]["reference_range"]["ambiguity"],0)
+
+    def test_optional_nulls_do_not_create_false_differences(self):
+        r,p,m=fixtures()
+        obs(p)[0]["reference_ranges"][0]["source_condition"]=None
+        self.assertEqual(compare(r,p,m)["functional_verdict"],"PASS")
+
     def test_verified_identity_can_pass(self):
         self.assertEqual(compare(*fixtures())["functional_verdict"],"PASS")
 
@@ -153,7 +169,7 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();r["annotations"]["/parts/0/sections/0/observations/0/reference_ranges"]={"status":"ambiguous","note":"synthetic ambiguity"}
         approve(r)
         obs(p)[0]["reference_ranges"]=[]
-        self.assertEqual(compare(r,p,m)["dimensions"]["reference_range"]["ambiguity"],1)
+        self.assertEqual(compare(r,p,m)["dimensions"]["reference_range"]["ambiguity"],2)
 
     def test_missing_annotations_cannot_pass(self):
         r,p,m=fixtures();r["annotations"]={};r["annotation_status"]="incomplete";approve(r)

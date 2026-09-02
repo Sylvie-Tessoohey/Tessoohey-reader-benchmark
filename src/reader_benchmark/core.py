@@ -271,7 +271,7 @@ def _source_tree(value: Any) -> Any:
     if isinstance(value,list):
         return sorted((_source_tree(v) for v in value),key=canonical)
     if isinstance(value,dict):
-        return {k:_source_tree(v) for k,v in value.items() if k not in ("id","source_zone","provenance")}
+        return {k:_source_tree(v) for k,v in value.items() if v is not None and k not in ("id","source_zone","provenance")}
     return value
 
 
@@ -336,7 +336,17 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
             field_paths=[f"{path}/current_result/source_representations/{k}/{field}" for k,_ in enumerate(a.get("current_result",{}).get("source_representations",[]))]
             check(dim,path+"/current_result",_representations(a,field),_representations(b,field),annotation_paths=field_paths)
         check("current_vs_history",path+"/previous_results",_source_tree(a.get("previous_results",[])),_source_tree(b.get("previous_results",[])))
-        check("reference_range",path+"/reference_ranges",_source_tree(a.get("reference_ranges",[])),_source_tree(b.get("reference_ranges",[])))
+        # A glyph ambiguity in the literal range text must not hide wrong bounds,
+        # units or conditions. Keep those fields coupled in one critical check.
+        range_fields=("source_condition","operator","source_value","source_min","source_max","source_unit")
+        ar,br=a.get("reference_ranges",[]),b.get("reference_ranges",[])
+        def range_semantics(ranges):
+            return _source_tree([{k:r.get(k) for k in range_fields} for r in ranges])
+        range_paths=[f"{path}/reference_ranges/{i}/{k}" for i,_ in enumerate(ar) for k in range_fields]
+        check("reference_range",path+"/reference_ranges",range_semantics(ar),range_semantics(br),annotation_paths=range_paths)
+        literal_paths=[f"{path}/reference_ranges/{i}/source_text" for i,_ in enumerate(ar)]
+        check("reference_range",path+"/reference_ranges",sorted((r.get("source_text") for r in ar),key=canonical),
+              sorted((r.get("source_text") for r in br),key=canonical),False,annotation_paths=literal_paths)
         # Coupled comparisons detect swaps hidden by identical per-field multisets.
         check("association",path+"/current_result",_representations(a),_representations(b))
         check("association",path+"/current_result/type",a.get("current_result",{}).get("type"),b.get("current_result",{}).get("type"))

@@ -105,6 +105,24 @@ Do not label an old run with a newer branch head. If an old report lacks actual 
 identity, recover it from the executed commit before comparing; never guess. The manifest
 is preserved in the report and checked against available Reader output metadata.
 
+## Private campaign harness
+
+`scripts/run_private_campaign.py` runs outside Reader, in a private environment.
+It checks the exact clean Git checkout, fingerprints the instruction/request/schema files,
+requires complete explicitly approved references, and verifies each PDF before calling AI.
+It preserves full private requests/responses, per-call hashes, output and execution report,
+package versions, measured usage, and per-case comparison. Existing outputs cannot be
+overwritten. SDK retries are disabled and recorded to keep attempt accounting explicit.
+
+The three-case plan and medical inputs stay private. The harness is prepared and its prompt
+identity guards have synthetic tests; it has not yet been validated by a real campaign.
+Never execute it in this public repository’s GitHub Actions.
+
+```bash
+PYTHONPATH=src python scripts/run_private_campaign.py /private/campaign-plan.json \
+  --reader-checkout /private/pinned-reader --output /private/new-campaign
+```
+
 ## Comparison policy
 
 The dimensions are presence, source label, source value, comparator, unit, current vs history,
@@ -114,6 +132,9 @@ Classifications: match, critical_error, noncritical_error, ambiguity, unannotate
 Exact source string comparison is intentional. Label whitespace/case normalization is only
 used to find candidate identities. Representation order is ignored while value/unit/comparator
 pairs are preserved. Range/history objects keep their associated fields together.
+Range bounds, operators, conditions and units are checked together as critical fields;
+literal range typography is a separate noncritical check. An uncertain dash must not
+mask an incorrect bound. Optional explicit nulls and omitted optional fields are equivalent.
 
 Matching requires mutual unique best candidates. Duplicate/tied identities remain ambiguous.
 Incorrectly assigned values stay attached to their source label and are reported as critical.
