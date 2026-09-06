@@ -283,6 +283,47 @@ class ComparatorTests(unittest.TestCase):
         )
         self.assertEqual(part_check["classification"],"ambiguity")
 
+    def test_missing_part_examination_date_is_visible(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["parts"][0]["examination_date"]={
+            "source_date":"2026-01-01",
+            "normalized_date":"2026-01-01",
+        }
+        approve(r)
+        out=compare(r,p,m)
+        self.assertGreater(out["dimensions"]["structure"]["noncritical_error"],0)
+        self.assertTrue(any(
+            item["reference_path"]=="/parts/0/examination_date"
+            and item["classification"]=="noncritical_error"
+            for item in out["checks"]
+        ))
+
+    def test_missing_part_metadata_is_visible(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["parts"][0]["metadata"]=[
+            {"key":"report_status","source_value":"complete"}
+        ]
+        approve(r)
+        out=compare(r,p,m)
+        self.assertTrue(any(
+            item["reference_path"]=="/parts/0/metadata"
+            and item["classification"]=="noncritical_error"
+            for item in out["checks"]
+        ))
+
+    def test_section_method_must_stay_at_section_level(self):
+        r,p,m=fixtures()
+        method={"source_text":"Synthetic section method"}
+        r["documentary_json"]["parts"][0]["sections"][0]["method"]=deepcopy(method)
+        approve(r)
+        obs(p)[0]["method"]=deepcopy(method)
+        out=compare(r,p,m)
+        self.assertTrue(any(
+            item["reference_path"]=="/parts/0/sections/0/method"
+            and item["classification"]=="noncritical_error"
+            for item in out["checks"]
+        ))
+
     def test_changed_section_is_visible(self):
         r,p,m=fixtures();p["parts"][0]["sections"][0]["source_title"]="Changed section"
         self.assertGreater(compare(r,p,m)["dimensions"]["structure"]["noncritical_error"],0)
