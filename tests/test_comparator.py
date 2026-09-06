@@ -198,11 +198,16 @@ class ComparatorTests(unittest.TestCase):
 
     def test_reference_ambiguity_only_is_exposed_without_becoming_pass(self):
         r,p,m=fixtures()
-        r["documentary_json"]["parts"][0]["text_content"]="Synthetic body"
-        p["parts"][0]["text_content"]="Synthetic body"
-        r["annotations"]["/parts/0/text_content"]={
+        boilerplate={
+            "reason":"pagination",
+            "source_content":"Page 1/2",
+            "source_zone":zone(170),
+        }
+        r["documentary_json"]["document"]["excluded_boilerplate"]=[deepcopy(boilerplate)]
+        p["document"]["excluded_boilerplate"]=[deepcopy(boilerplate)]
+        r["annotations"]["/document/excluded_boilerplate/0/source_content"]={
             "status":"ambiguous",
-            "note":"Synthetic exact-layout ambiguity",
+            "note":"Synthetic exact-glyph ambiguity",
         }
         approve(r)
         out=compare(r,p,m)
