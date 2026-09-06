@@ -91,6 +91,25 @@ def _validate_zone(zone: Any, pages: list[dict], path: str) -> None:
             raise InputError(f"Invalid crop at {path}") from exc
 
 
+def _validate_all_source_zones(
+    value: Any,
+    pages: list[dict],
+    path: str = "",
+) -> None:
+    """Validate every documentary source_zone that is actually present."""
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = path + "/" + key.replace("~", "~0").replace("/", "~1")
+            if key == "source_zone" and child is not None:
+                _validate_zone(child, pages, child_path)
+            else:
+                _validate_all_source_zones(child, pages, child_path)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _validate_all_source_zones(child, pages, f"{path}/{index}")
+
+
 def observations(document: dict) -> list[dict]:
     output = []
 
@@ -140,6 +159,7 @@ def validate_reference(reference: dict) -> None:
         raise InputError("A documentary reference must not contain Reader execution fields")
     if doc.get("schema_version") != "1.0" or not isinstance(doc.get("parts"), list):
         raise InputError("Reference must contain Module 1 schema 1.0 documentary JSON")
+    _validate_all_source_zones(doc, pages)
     if not isinstance(reference.get("annotations"), dict):
         raise InputError("Explicit reference annotations are required")
     for path, mark in reference["annotations"].items():
