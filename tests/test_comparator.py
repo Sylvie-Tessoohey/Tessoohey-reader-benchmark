@@ -345,6 +345,21 @@ class ComparatorTests(unittest.TestCase):
             for item in out["checks"]
         ))
 
+    def test_part_metadata_does_not_cascade_after_part_identity_mismatch(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["parts"][0]["metadata"]=[
+            {"key":"report_status","source_value":"complete"}
+        ]
+        approve(r)
+        p["parts"][0]["type"]="unknown"
+        out=compare(r,p,m)
+        self.assertFalse(any(
+            item["reference_path"]=="/parts/0/metadata"
+            and item["classification"]=="noncritical_error"
+            for item in out["checks"]
+        ))
+        self.assertGreater(out["dimensions"]["structure"]["noncritical_error"],0)
+
     def test_missing_part_metadata_is_visible(self):
         r,p,m=fixtures()
         r["documentary_json"]["parts"][0]["metadata"]=[
