@@ -43,6 +43,10 @@ directory. `compare-campaigns` accepts complete private result directories or ZI
 writes both JSON and Markdown before/after evidence. It reports per-case count deltas,
 per-dimension deltas and check-classification transitions without an aggregate quality score.
 
+Campaign deltas isolate Reader attribution only when the benchmark commit and per-case reference
+identity are unchanged. If either changes, the report marks the evidence as mixed rather than
+silently attributing score movement to the Reader.
+
 Exit codes for a single-case comparison: `0` = functional PASS; `2` = valid comparison with
 another verdict; `3` = invalid or inconsistent inputs. Campaign-delta comparison returns `0`
 when both evidence bundles are structurally readable; its deltas never by themselves validate
@@ -154,6 +158,9 @@ mask an incorrect bound. Optional explicit nulls and omitted optional fields are
 
 Matching requires mutual unique best candidates. Duplicate/tied identities remain ambiguous.
 Incorrectly assigned values stay attached to their source label and are reported as critical.
+A derived `reference_ambiguity_only` diagnostic may identify successful Reader outputs whose only
+remaining non-match state is independently declared reference ambiguity; the functional verdict
+remains `INCOMPLETE`, never `PASS`.
 Without enough identity evidence the report shows missing/extra/ambiguous observations;
 it never invents a match to improve the result.
 
