@@ -235,6 +235,36 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();p["unclassified_elements"]=[{"source_content":"unresolved","reason":"ambiguous"}]
         self.assertEqual(compare(r,p,m)["dimensions"]["unclassified"]["noncritical_error"],1)
 
+    def test_unrelated_text_ambiguity_does_not_block_part_structure(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["parts"][0]["text_content"]="Synthetic body"
+        p["parts"][0]["text_content"]="Synthetic body"
+        r["annotations"]["/parts/0/text_content"]={
+            "status":"ambiguous",
+            "note":"Synthetic reading-order ambiguity",
+        }
+        approve(r)
+        out=compare(r,p,m)
+        part_check=next(
+            item for item in out["checks"]
+            if item["dimension"]=="structure" and item["reference_path"]=="/parts"
+        )
+        self.assertEqual(part_check["classification"],"match")
+
+    def test_section_title_ambiguity_blocks_part_structure(self):
+        r,p,m=fixtures()
+        r["annotations"]["/parts/0/sections/0/source_title"]={
+            "status":"ambiguous",
+            "note":"Synthetic heading ambiguity",
+        }
+        approve(r)
+        out=compare(r,p,m)
+        part_check=next(
+            item for item in out["checks"]
+            if item["dimension"]=="structure" and item["reference_path"]=="/parts"
+        )
+        self.assertEqual(part_check["classification"],"ambiguity")
+
     def test_changed_section_is_visible(self):
         r,p,m=fixtures();p["parts"][0]["sections"][0]["source_title"]="Changed section"
         self.assertGreater(compare(r,p,m)["dimensions"]["structure"]["noncritical_error"],0)
