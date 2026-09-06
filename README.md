@@ -147,10 +147,12 @@ Incorrectly assigned values stay attached to their source label and are reported
 Without enough identity evidence the report shows missing/extra/ambiguous observations;
 it never invents a match to improve the result.
 
-Geometry policy v1 checks in-page finite rectangles and requires matching ordered page lists
-with IoU at least 0.25. This is a documented initial heuristic, not a proof of visual truth.
-Whole-page boxes cannot replace small observation evidence boxes. Calibrate geometry on
-verified examples before changing this threshold; record policy changes as benchmark versions.
+Geometry policy v1 checks in-page finite rectangles and requires the same page set.
+Each Reader evidence crop must either reach IoU 0.25 with a reference crop or lie at least
+80% inside one. Every independently annotated reference crop must still be touched. This
+allows several precise Reader crops to support one broader human reference zone without
+accepting whole-page evidence as a substitute for a small observation zone. Geometry remains
+a heuristic, not a proof of visual truth; policy changes must be recorded as benchmark versions.
 
 `CANDIDATE_REFERENCE` is reported even when candidate comparisons have errors. Error counts
 remain visible. For approved references, Reader `partial`/`error` is retained before any PASS.
