@@ -224,6 +224,28 @@ def _dimension_delta(
     return result
 
 
+def _comparison_identity(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "reference_version": report.get("reference_version"),
+        "reference_sha256": report.get("reference_sha256"),
+        "benchmark_schema_version": report.get("benchmark_schema_version"),
+    }
+
+
+def _attribution_state(
+    *,
+    benchmark_same: bool,
+    reference_same: bool,
+) -> str:
+    if benchmark_same and reference_same:
+        return "reader_or_execution_change"
+    if not benchmark_same and not reference_same:
+        return "mixed_benchmark_and_reference_change"
+    if not benchmark_same:
+        return "mixed_benchmark_change"
+    return "mixed_reference_change"
+
+
 def _summary_identity(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         key: summary.get(key)
@@ -240,6 +262,10 @@ def compare_campaigns(
     baseline_cases = {item["case_id"]: item for item in _case_entries(baseline.summary)}
     candidate_cases = {item["case_id"]: item for item in _case_entries(candidate.summary)}
     case_ids = sorted(set(baseline_cases) | set(candidate_cases))
+    benchmark_same = (
+        baseline.summary.get("benchmark_commit")
+        == candidate.summary.get("benchmark_commit")
+    )
 
     cases: list[dict[str, Any]] = []
     totals = {
@@ -270,6 +296,17 @@ def compare_campaigns(
                 f"case {case_id!r} is missing a loaded comparison report"
             )
 
+        before_identity = _comparison_identity(before_report)
+        after_identity = _comparison_identity(after_report)
+        reference_same = (
+            before_identity["reference_version"] == after_identity["reference_version"]
+            and before_identity["reference_sha256"] == after_identity["reference_sha256"]
+        )
+        attribution = _attribution_state(
+            benchmark_same=benchmark_same,
+            reference_same=reference_same,
+        )
+
         transitions = _transitions(before_report, after_report)
         for item in transitions:
             change = item["change"]
@@ -295,6 +332,14 @@ def compare_campaigns(
                 "count_delta": _count_delta(before_counts, after_counts),
                 "dimensions": _dimension_delta(before_report, after_report),
                 "classification_transitions": transitions,
+                "comparison_identity": {
+                    "baseline": before_identity,
+                    "candidate": after_identity,
+                    "benchmark_same": benchmark_same,
+                    "reference_same": reference_same,
+                    "attribution": attribution,
+                    "reader_delta_isolated": benchmark_same and reference_same,
+                },
             }
         )
 
@@ -303,12 +348,17 @@ def compare_campaigns(
         "baseline": _summary_identity(baseline.summary),
         "candidate": _summary_identity(candidate.summary),
         "transition_totals": totals,
+        "benchmark_same": benchmark_same,
         "cases": cases,
         "policy": {
             "aggregate_quality_score": False,
             "error_resolution": (
                 "critical_error/noncritical_error -> match only; ambiguity transitions "
                 "remain explicit and are not called resolutions"
+            ),
+            "attribution": (
+                "Reader attribution is isolated only when benchmark commit and per-case "
+                "reference identity are unchanged. Otherwise deltas are mixed evidence."
             ),
         },
     }
@@ -326,6 +376,7 @@ def render_campaign_delta_markdown(report: dict[str, Any]) -> str:
         f"Candidate Reader: `{report['candidate'].get('reader_commit')}`",
         f"Baseline benchmark: `{report['baseline'].get('benchmark_commit')}`",
         f"Candidate benchmark: `{report['candidate'].get('benchmark_commit')}`",
+        f"Same benchmark commit: **{report.get('benchmark_same')}**",
         "",
         "## Classification transitions",
         "",
@@ -346,6 +397,12 @@ def render_campaign_delta_markdown(report: dict[str, Any]) -> str:
         if case.get("status") != "compared":
             lines.append(f"Case status: **{case.get('status')}**")
             continue
+        identity = case.get("comparison_identity", {})
+        lines.append(
+            "Attribution: "
+            f"**{identity.get('attribution')}** "
+            f"(Reader delta isolated: **{identity.get('reader_delta_isolated')}**)"
+        )
         lines.append(
             "Verdict: "
             f"**{case['baseline'].get('functional_verdict')}** -> "
