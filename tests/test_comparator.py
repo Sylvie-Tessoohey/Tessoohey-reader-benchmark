@@ -157,6 +157,37 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();obs(p)[0]["source_zone"]["crops"][0].update(x1=0,y1=0,x2=200,y2=200)
         self.assertEqual(compare(r,p,m)["dimensions"]["provenance"]["critical_error"],1)
 
+    def test_precise_multi_crop_evidence_inside_broad_reference_zone_passes(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]["source_zone"]["crops"][0]
+        expected.update(x1=10,y1=10,x2=190,y2=40)
+        approve(r)
+        obs(p)[0]["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[
+                {"order":1,"page":1,"x1":12,"y1":12,"x2":90,"y2":20},
+                {"order":2,"page":1,"x1":100,"y1":22,"x2":180,"y2":30},
+            ],
+        }
+        self.assertEqual(compare(r,p,m)["dimensions"]["provenance"]["match"],2)
+
+    def test_outside_extra_crop_fails_provenance(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]["source_zone"]["crops"][0]
+        expected.update(x1=10,y1=10,x2=190,y2=40)
+        approve(r)
+        obs(p)[0]["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[
+                {"order":1,"page":1,"x1":12,"y1":12,"x2":90,"y2":20},
+                {"order":2,"page":1,"x1":10,"y1":100,"x2":180,"y2":110},
+            ],
+        }
+        self.assertEqual(
+            compare(r,p,m)["dimensions"]["provenance"]["critical_error"],
+            1,
+        )
+
     def test_unannotated_child_not_masked_by_verified_parent(self):
         r,p,m=fixtures();r["annotations"]["/parts/0/sections/0/observations/0/current_result/source_representations/0/source_unit"]={"status":"unannotated"}
         r["annotation_status"]="incomplete";approve(r)
