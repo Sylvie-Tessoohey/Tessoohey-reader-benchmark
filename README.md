@@ -18,9 +18,10 @@ This repository contains no production integration, catalogue mapping or real me
   private campaign.
 - Adversarial synthetic tests, including swapped values and misleading marginal multisets.
 
-The first private corpus selection and first candidate reference are separate deliverables.
-They are **not published in this public repository**. No real campaign has been run by this
-initial implementation. CI success only validates the synthetic comparator tests.
+The private corpus and validated references are **not published in this public repository**.
+A first real three-case private baseline was executed on 2026-09-06 and remains functionally
+non-passing. Public CI still validates synthetic comparator behavior only; real campaign evidence
+remains private.
 
 ## Use without installation
 
@@ -32,11 +33,20 @@ PYTHONPATH=src python -m reader_benchmark.cli validate-reference /private/refere
 PYTHONPATH=src python -m reader_benchmark.cli compare \
   /private/reference.json /private/reader-output.json /private/run.json \
   --output /private/report.json
+PYTHONPATH=src python -m reader_benchmark.cli compare-campaigns \
+  /private/baseline-results.zip /private/candidate-results.zip \
+  --output /private/campaign-delta.json
 ```
 
-The comparison writes both `report.json` and `report.md` to the chosen private directory.
-Exit codes: `0` = functional PASS; `2` = valid comparison with another verdict;
-`3` = invalid or inconsistent inputs. The original Reader status is always retained.
+A single-case comparison writes both `report.json` and `report.md` to the chosen private
+directory. `compare-campaigns` accepts complete private result directories or ZIP archives and
+writes both JSON and Markdown before/after evidence. It reports per-case count deltas,
+per-dimension deltas and check-classification transitions without an aggregate quality score.
+
+Exit codes for a single-case comparison: `0` = functional PASS; `2` = valid comparison with
+another verdict; `3` = invalid or inconsistent inputs. Campaign-delta comparison returns `0`
+when both evidence bundles are structurally readable; its deltas never by themselves validate
+Gate 1. The original Reader statuses are always retained.
 
 ## Reference envelope
 
@@ -118,10 +128,10 @@ hashes, output and execution report, package versions, measured usage, and per-c
 Existing outputs cannot be overwritten. SDK retries are disabled and recorded to keep attempt
 accounting explicit.
 
-The three-case plan and medical inputs stay private. The harness is prepared and its identity
-guards have synthetic tests; it has not yet been validated by a real campaign. Never execute
-it with real medical inputs in this public repository’s GitHub Actions, and never upload those
-private inputs or outputs as public Actions artifacts.
+The three-case plan and medical inputs stay private. The harness identity guards have synthetic
+tests and the harness has now been exercised in a real private baseline. Never execute it with
+real medical inputs in this public repository’s GitHub Actions, and never upload those private
+inputs or outputs as public Actions artifacts.
 
 ```bash
 # Run from the exact benchmark commit named by benchmark_commit in the private plan.
