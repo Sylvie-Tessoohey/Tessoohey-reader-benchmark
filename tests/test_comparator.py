@@ -196,6 +196,19 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(out["dimensions"]["unit"]["unannotated"],1)
         self.assertNotEqual(out["functional_verdict"],"PASS")
 
+    def test_reference_ambiguity_only_is_exposed_without_becoming_pass(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["parts"][0]["text_content"]="Synthetic body"
+        p["parts"][0]["text_content"]="Synthetic body"
+        r["annotations"]["/parts/0/text_content"]={
+            "status":"ambiguous",
+            "note":"Synthetic exact-layout ambiguity",
+        }
+        approve(r)
+        out=compare(r,p,m)
+        self.assertEqual(out["functional_verdict"],"INCOMPLETE")
+        self.assertTrue(out["reference_ambiguity_only"])
+
     def test_reference_ambiguity_not_treated_as_truth(self):
         r,p,m=fixtures();r["annotations"]["/parts/0/sections/0/observations/0/reference_ranges"]={"status":"ambiguous","note":"synthetic ambiguity"}
         approve(r)
