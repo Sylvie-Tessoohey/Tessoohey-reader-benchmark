@@ -12,7 +12,13 @@ from reader_benchmark.campaign_delta import (
 )
 
 
-def comparison(case_id, checks):
+def comparison(
+    case_id,
+    checks,
+    *,
+    reference_version="1",
+    reference_sha256="f" * 64,
+):
     dimensions = {}
     counts = {}
     for check in checks:
@@ -24,14 +30,27 @@ def comparison(case_id, checks):
         )
         counts[classification] = counts.get(classification, 0) + 1
     return {
+        "benchmark_schema_version": "1.1",
         "case_id": case_id,
+        "reference_version": reference_version,
+        "reference_sha256": reference_sha256,
         "checks": checks,
         "dimensions": dimensions,
         "counts": counts,
     }
 
 
-def write_campaign(root, *, reader, benchmark, verdict, checks, zip_name=None):
+def write_campaign(
+    root,
+    *,
+    reader,
+    benchmark,
+    verdict,
+    checks,
+    zip_name=None,
+    reference_version="1",
+    reference_sha256="f" * 64,
+):
     case_id = "case_001"
     summary = {
         "campaign_id": f"campaign-{reader[:4]}",
@@ -43,7 +62,12 @@ def write_campaign(root, *, reader, benchmark, verdict, checks, zip_name=None):
                 "case_id": case_id,
                 "extraction_status": "success",
                 "functional_verdict": verdict,
-                "counts": comparison(case_id, checks)["counts"],
+                "counts": comparison(
+                    case_id,
+                    checks,
+                    reference_version=reference_version,
+                    reference_sha256=reference_sha256,
+                )["counts"],
             }
         ],
     }
@@ -54,7 +78,14 @@ def write_campaign(root, *, reader, benchmark, verdict, checks, zip_name=None):
         encoding="utf-8",
     )
     (campaign_root / case_id / "comparison.json").write_text(
-        json.dumps(comparison(case_id, checks)),
+        json.dumps(
+            comparison(
+                case_id,
+                checks,
+                reference_version=reference_version,
+                reference_sha256=reference_sha256,
+            )
+        ),
         encoding="utf-8",
     )
     if zip_name is None:
@@ -135,6 +166,98 @@ class CampaignDeltaTests(unittest.TestCase):
         self.assertEqual(case["count_delta"]["match"], 1)
         self.assertEqual(case["count_delta"]["ambiguity"], -1)
         self.assertFalse(report["policy"]["aggregate_quality_score"])
+
+    def test_reader_attribution_is_not_isolated_when_benchmark_changes(self):
+        checks = [
+            {
+                "dimension": "presence",
+                "reference_path": "/obs/1",
+                "classification": "match",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = write_campaign(
+                root / "before",
+                reader="a" * 40,
+                benchmark="b" * 40,
+                verdict="PASS",
+                checks=checks,
+            )
+            after = write_campaign(
+                root / "after",
+                reader="c" * 40,
+                benchmark="d" * 40,
+                verdict="PASS",
+                checks=checks,
+            )
+            report = compare_campaigns(load_campaign(before), load_campaign(after))
+
+        identity = report["cases"][0]["comparison_identity"]
+        self.assertFalse(identity["reader_delta_isolated"])
+        self.assertEqual(identity["attribution"], "mixed_benchmark_change")
+
+    def test_reader_attribution_is_not_isolated_when_reference_changes(self):
+        checks = [
+            {
+                "dimension": "presence",
+                "reference_path": "/obs/1",
+                "classification": "match",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = write_campaign(
+                root / "before",
+                reader="a" * 40,
+                benchmark="b" * 40,
+                verdict="PASS",
+                checks=checks,
+                reference_sha256="1" * 64,
+            )
+            after = write_campaign(
+                root / "after",
+                reader="c" * 40,
+                benchmark="b" * 40,
+                verdict="PASS",
+                checks=checks,
+                reference_sha256="2" * 64,
+            )
+            report = compare_campaigns(load_campaign(before), load_campaign(after))
+
+        identity = report["cases"][0]["comparison_identity"]
+        self.assertFalse(identity["reader_delta_isolated"])
+        self.assertEqual(identity["attribution"], "mixed_reference_change")
+
+    def test_reader_attribution_is_isolated_with_same_benchmark_and_reference(self):
+        checks = [
+            {
+                "dimension": "presence",
+                "reference_path": "/obs/1",
+                "classification": "match",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = write_campaign(
+                root / "before",
+                reader="a" * 40,
+                benchmark="b" * 40,
+                verdict="PASS",
+                checks=checks,
+            )
+            after = write_campaign(
+                root / "after",
+                reader="c" * 40,
+                benchmark="b" * 40,
+                verdict="PASS",
+                checks=checks,
+            )
+            report = compare_campaigns(load_campaign(before), load_campaign(after))
+
+        identity = report["cases"][0]["comparison_identity"]
+        self.assertTrue(identity["reader_delta_isolated"])
+        self.assertEqual(identity["attribution"], "reader_or_execution_change")
 
     def test_directory_campaign_is_supported(self):
         checks = [
