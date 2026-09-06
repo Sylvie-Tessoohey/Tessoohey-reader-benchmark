@@ -174,8 +174,10 @@ Unannotated fields, incomplete inventories and unresolved matching prevent full 
 - No full Module 1 JSON Schema validator is bundled yet. Input validation targets comparison
   identity, annotation integrity and provenance; authoring checks should also validate against
   the pinned Reader schema. A benchmark PASS is scoped to these checks, never Gate 1 approval.
-- Text transcription/boilerplate quality, field-level geometry of nested references and
-  benchmark campaigns across multiple models remain to be expanded.
+- Text transcription/boilerplate quality, document-header/boilerplate provenance geometry,
+  field-level geometry of nested references and benchmark campaigns across multiple models remain
+  to be expanded. A design for future document-shell provenance checks is recorded under
+  `docs/document-shell-comparator-design.md`.
 - References remain candidates until explicit approval; annotation completeness is tracked separately.
 - Real outputs, references and reports must remain in private storage outside Git. Do not
   upload them to this repository's public Actions artifacts.
