@@ -213,13 +213,44 @@ def _crops(obs: dict) -> list[dict]:
     return (obs.get("source_zone") or {}).get("crops", [])
 
 
-def _overlap(a: dict, b: dict) -> float:
+def _area(crop: dict) -> float:
+    return max(0, crop["x2"] - crop["x1"]) * max(0, crop["y2"] - crop["y1"])
+
+
+def _intersection(a: dict, b: dict) -> float:
     if a.get("page") != b.get("page"):
         return 0.0
-    intersection = max(0, min(a["x2"],b["x2"])-max(a["x1"],b["x1"])) * max(0,min(a["y2"],b["y2"])-max(a["y1"],b["y1"]))
-    aa = max(0,(a["x2"]-a["x1"])*(a["y2"]-a["y1"]))
-    bb = max(0,(b["x2"]-b["x1"])*(b["y2"]-b["y1"]))
-    return intersection / (aa+bb-intersection) if aa+bb-intersection else 0
+    return max(0, min(a["x2"], b["x2"]) - max(a["x1"], b["x1"])) * max(
+        0, min(a["y2"], b["y2"]) - max(a["y1"], b["y1"])
+    )
+
+
+def _overlap(a: dict, b: dict) -> float:
+    intersection = _intersection(a, b)
+    aa, bb = _area(a), _area(b)
+    return intersection / (aa + bb - intersection) if aa + bb - intersection else 0
+
+
+def _actual_crop_supported(expected: dict, actual: dict) -> bool:
+    """Allow precise Reader evidence inside a broader independently drawn reference zone."""
+    intersection = _intersection(expected, actual)
+    actual_area = _area(actual)
+    if not intersection or not actual_area:
+        return False
+    return _overlap(expected, actual) >= 0.25 or intersection / actual_area >= 0.80
+
+
+def _provenance_compatible(expected: list[dict], actual: list[dict]) -> bool:
+    if not expected or not actual:
+        return False
+    if {crop["page"] for crop in expected} != {crop["page"] for crop in actual}:
+        return False
+    if not all(any(_actual_crop_supported(ref, got) for ref in expected) for got in actual):
+        return False
+    return all(
+        any(_intersection(ref, got) > 0 for got in actual if got["page"] == ref["page"])
+        for ref in expected
+    )
 
 
 def matching_score(a: dict, b: dict) -> float:
@@ -353,8 +384,7 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         check("structure",path,{"sections":item["context"],"parts":item["part_types"]},
               {"sections":bitem["context"],"parts":bitem["part_types"]},False)
         ac,bc=_crops(a),_crops(b)
-        ok=(matches[i] not in invalid_actual and len(ac)==len(bc) and all(
-            x.get("page")==y.get("page") and _overlap(x,y)>=.25 for x,y in zip(ac,bc)))
+        ok=matches[i] not in invalid_actual and _provenance_compatible(ac,bc)
         check("provenance",path+"/source_zone",ac,bc,equal=ok)
         # Evaluate explicitly annotated supplementary fields, keeping medical flags strict.
         for field in ("method","comment","lab_interpretation","ambiguity"):
@@ -388,5 +418,5 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
             "counts":dict(counts),"dimensions":by_dim,"checks":checks,
             "policy":{"matching":"label + section context + page + geometry; no values or units",
                       "source_text":"literal; whitespace normalization for matching only",
-                      "geometry":"same ordered pages and IoU >= 0.25; does not prove visual truth",
+                      "geometry":"same page set; each Reader crop must have IoU >= 0.25 or >= 80% of its area inside a reference crop, and every reference crop must be touched; does not prove visual truth",
                       "aggregate_score":None,"gate1_validated":False}}
