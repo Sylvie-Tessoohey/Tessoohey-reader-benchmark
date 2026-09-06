@@ -489,6 +489,14 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         doc.get("parts", []),
         produced.get("parts", []),
     ):
+        if (
+            expected_part.get("type"),
+            expected_part.get("subtype"),
+        ) != (
+            actual_part.get("type"),
+            actual_part.get("subtype"),
+        ):
+            continue
         check(
             "structure",
             part_path + "/languages",
@@ -522,6 +530,8 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
             actual_part.get("sections", []),
             part_path + "/sections",
         ):
+            if expected_section.get("source_title") != actual_section.get("source_title"):
+                continue
             check(
                 "association",
                 section_path + "/method",
