@@ -306,6 +306,28 @@ def _source_tree(value: Any) -> Any:
     return value
 
 
+def _structure_annotation_paths(doc: dict) -> list[str]:
+    """Return only source fields that contribute to the structural projection."""
+
+    result: list[str] = []
+
+    def sections(items: list[dict], path: str) -> None:
+        for index, section in enumerate(items):
+            here = f"{path}/{index}"
+            result.append(here + "/source_title")
+            sections(section.get("subsections", []), here + "/subsections")
+
+    def parts(items: list[dict], path: str) -> None:
+        for index, part in enumerate(items):
+            here = f"{path}/{index}"
+            result.extend((here + "/type", here + "/subtype"))
+            sections(part.get("sections", []), here + "/sections")
+            parts(part.get("subparts", []), here + "/subparts")
+
+    parts(doc.get("parts", []), "/parts")
+    return result or ["/parts"]
+
+
 def _structure(doc: dict) -> list:
     result=[]
     def sections(ss,parent):
@@ -399,7 +421,14 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
             add("extra_elements","critical_error" if complete else "unannotated",item["path"],actual=item["obs"].get("source_label"),detail="Unexpected observation" if complete else "Inventory is incomplete")
     doc=reference["documentary_json"]
     check("structure","/document",_source_tree(doc.get("document")),_source_tree(produced.get("document")),False)
-    check("structure","/parts",_structure(doc),_structure(produced),False)
+    check(
+        "structure",
+        "/parts",
+        _structure(doc),
+        _structure(produced),
+        False,
+        annotation_paths=_structure_annotation_paths(doc),
+    )
     check("unclassified","/unclassified_elements",_source_tree(doc.get("unclassified_elements",[])),_source_tree(produced.get("unclassified_elements",[])),False)
     counts=Counter(c["classification"] for c in checks)
     by_dim={d:dict(Counter(c["classification"] for c in checks if c["dimension"]==d)) for d in DIMENSIONS}
