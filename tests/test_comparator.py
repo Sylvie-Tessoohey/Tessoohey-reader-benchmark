@@ -224,6 +224,53 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();r["annotations"]={};r["annotation_status"]="incomplete";approve(r)
         self.assertEqual(compare(r,p,m)["functional_verdict"],"INCOMPLETE")
 
+    def test_invalid_document_header_zone_is_rejected(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["document"]["document_header"]={
+            "patient":{"source_name":"Synthetic Patient"},
+            "source_zone":{
+                "coordinate_system":"pdf_points_top_left",
+                "crops":[
+                    {
+                        "order":1,
+                        "page":1,
+                        "x1":10,
+                        "y1":10,
+                        "x2":999,
+                        "y2":20,
+                    }
+                ],
+            },
+        }
+        approve(r)
+        with self.assertRaises(InputError):
+            compare(r,p,m)
+
+    def test_invalid_part_metadata_zone_is_rejected(self):
+        r,p,m=fixtures()
+        r["documentary_json"]["parts"][0]["metadata"]=[
+            {
+                "key":"report_status",
+                "source_value":"complete",
+                "source_zone":{
+                    "coordinate_system":"pdf_points_top_left",
+                    "crops":[
+                        {
+                            "order":1,
+                            "page":3,
+                            "x1":10,
+                            "y1":10,
+                            "x2":20,
+                            "y2":20,
+                        }
+                    ],
+                },
+            }
+        ]
+        approve(r)
+        with self.assertRaises(InputError):
+            compare(r,p,m)
+
     def test_pdf_identity_mismatch_is_blocked(self):
         r,p,m=fixtures();m["source"]["sha256"]="c"*64
         with self.assertRaises(InputError):compare(r,p,m)
