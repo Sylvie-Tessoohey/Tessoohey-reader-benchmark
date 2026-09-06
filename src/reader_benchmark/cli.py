@@ -4,6 +4,12 @@ import argparse
 import json
 from pathlib import Path
 
+from reader_benchmark.campaign_delta import (
+    CampaignDeltaError,
+    compare_campaigns,
+    load_campaign,
+    render_campaign_delta_markdown,
+)
 from reader_benchmark.core import InputError, compare, validate_reference
 
 
@@ -36,8 +42,24 @@ def main():
     for name in ("reference","produced","run"):
         cmp.add_argument(name,type=Path)
     cmp.add_argument("--output",type=Path,required=True)
+    campaigns=sub.add_parser("compare-campaigns")
+    campaigns.add_argument("baseline",type=Path)
+    campaigns.add_argument("candidate",type=Path)
+    campaigns.add_argument("--output",type=Path,required=True)
     args=parser.parse_args()
     try:
+        if args.command=="compare-campaigns":
+            report=compare_campaigns(load_campaign(args.baseline),load_campaign(args.candidate))
+            args.output.parent.mkdir(parents=True,exist_ok=True)
+            args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n")
+            args.output.with_suffix(".md").write_text(render_campaign_delta_markdown(report))
+            print(json.dumps({
+                "baseline":report["baseline"],
+                "candidate":report["candidate"],
+                "transition_totals":report["transition_totals"],
+            }))
+            return 0
+
         reference=json.loads(args.reference.read_text())
         if args.command=="validate-reference":
             validate_reference(reference)
@@ -51,7 +73,7 @@ def main():
         args.output.with_suffix(".md").write_text(render_markdown(report))
         print(json.dumps({k:report[k] for k in ("case_id","annotation_status","extraction_status","functional_verdict","counts")}))
         return 0 if report["functional_verdict"]=="PASS" else 2
-    except (InputError,ValueError,KeyError,TypeError,OSError) as exc:
+    except (CampaignDeltaError,InputError,ValueError,KeyError,TypeError,OSError) as exc:
         print(json.dumps({"functional_verdict":"INPUT_INVALID","error":str(exc)}))
         return 3
 
