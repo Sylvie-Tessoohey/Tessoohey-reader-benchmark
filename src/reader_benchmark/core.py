@@ -306,6 +306,42 @@ def _source_tree(value: Any) -> Any:
     return value
 
 
+def _parallel_parts(
+    expected: list[dict],
+    actual: list[dict],
+    path: str = "/parts",
+):
+    """Yield same-position documentary parts after structural comparison handles reordering."""
+
+    for index in range(min(len(expected), len(actual))):
+        here = f"{path}/{index}"
+        left, right = expected[index], actual[index]
+        yield here, left, right
+        yield from _parallel_parts(
+            left.get("subparts", []),
+            right.get("subparts", []),
+            here + "/subparts",
+        )
+
+
+def _parallel_sections(
+    expected: list[dict],
+    actual: list[dict],
+    path: str,
+):
+    """Yield same-position sections for non-observation documentary field checks."""
+
+    for index in range(min(len(expected), len(actual))):
+        here = f"{path}/{index}"
+        left, right = expected[index], actual[index]
+        yield here, left, right
+        yield from _parallel_sections(
+            left.get("subsections", []),
+            right.get("subsections", []),
+            here + "/subsections",
+        )
+
+
 def _structure_annotation_paths(doc: dict) -> list[str]:
     """Return only source fields that contribute to the structural projection."""
 
@@ -429,6 +465,57 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         False,
         annotation_paths=_structure_annotation_paths(doc),
     )
+    for part_path, expected_part, actual_part in _parallel_parts(
+        doc.get("parts", []),
+        produced.get("parts", []),
+    ):
+        check(
+            "structure",
+            part_path + "/languages",
+            expected_part.get("languages", []),
+            actual_part.get("languages", []),
+            False,
+        )
+        check(
+            "structure",
+            part_path + "/examination_date",
+            _source_tree(expected_part.get("examination_date")),
+            _source_tree(actual_part.get("examination_date")),
+            False,
+        )
+        check(
+            "association",
+            part_path + "/metadata",
+            _source_tree(expected_part.get("metadata", [])),
+            _source_tree(actual_part.get("metadata", [])),
+            False,
+        )
+        check(
+            "association",
+            part_path + "/comment",
+            _source_tree(expected_part.get("comment")),
+            _source_tree(actual_part.get("comment")),
+            False,
+        )
+        for section_path, expected_section, actual_section in _parallel_sections(
+            expected_part.get("sections", []),
+            actual_part.get("sections", []),
+            part_path + "/sections",
+        ):
+            check(
+                "association",
+                section_path + "/method",
+                _source_tree(expected_section.get("method")),
+                _source_tree(actual_section.get("method")),
+                False,
+            )
+            check(
+                "association",
+                section_path + "/comment",
+                _source_tree(expected_section.get("comment")),
+                _source_tree(actual_section.get("comment")),
+                False,
+            )
     check("unclassified","/unclassified_elements",_source_tree(doc.get("unclassified_elements",[])),_source_tree(produced.get("unclassified_elements",[])),False)
     counts=Counter(c["classification"] for c in checks)
     by_dim={d:dict(Counter(c["classification"] for c in checks if c["dimension"]==d)) for d in DIMENSIONS}
