@@ -437,9 +437,20 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
     elif counts["critical_error"] or counts["noncritical_error"]:verdict="FAIL"
     elif counts["ambiguity"] or counts["unannotated"] or reference["observation_inventory"]!="complete" or reference["annotation_status"]!="complete":verdict="INCOMPLETE"
     else:verdict="PASS"
+    reference_ambiguity_only=(
+        reference["status"]=="validated"
+        and reference["annotation_status"]=="complete"
+        and reference["observation_inventory"]=="complete"
+        and produced["status"]=="success"
+        and counts["ambiguity"]>0
+        and not counts["critical_error"]
+        and not counts["noncritical_error"]
+        and not counts["unannotated"]
+    )
     return {"benchmark_schema_version":"1.1","case_id":reference["case_id"],"reference_version":reference["reference_version"],
             "reference_status":reference["status"],"annotation_status":reference["annotation_status"],
             "extraction_status":produced["status"],"functional_verdict":verdict,
+            "reference_ambiguity_only":reference_ambiguity_only,
             "reference_sha256":fingerprint(canonical(reference).encode()),"output_sha256":fingerprint(canonical(produced).encode()),
             "run":run,"observations":{"expected":len(expected),"produced":len(actual),"matched":len(matches),
               "missing":len(expected)-len(matches)-len(amb_e),"ambiguous":len(amb_e),
