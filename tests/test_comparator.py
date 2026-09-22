@@ -240,4 +240,51 @@ class ComparatorTests(unittest.TestCase):
         self.assertGreater(compare(r,p,m)["dimensions"]["structure"]["noncritical_error"],0)
 
 
+    def test_micro_sign_and_greek_mu_are_equivalent_in_units(self):
+        r,p,m=fixtures()
+        obs(r["documentary_json"])[0]["current_result"]["source_representations"][0]["source_unit"]="µg/L"
+        approve(r)
+        obs(p)[0]["current_result"]["source_representations"][0]["source_unit"]="μg/L"
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["unit"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["association"].get("critical_error",0),0)
+
+    def test_range_grouping_spaces_and_unit_slash_spaces_are_semantically_equivalent(self):
+        r,p,m=fixtures()
+        rr=obs(r["documentary_json"])[0]["reference_ranges"][0]
+        rr.update(source_min="1 182", source_max="1 970", source_unit="g / 24h")
+        approve(r)
+        ar=obs(p)[0]["reference_ranges"][0]
+        ar.update(source_min="1182", source_max="1970", source_unit="g/24h")
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["reference_range"].get("critical_error",0),0)
+
+    def test_small_annotation_coordinate_drift_is_tolerated(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]["source_zone"]["crops"][0]
+        expected.update(x1=20,y1=20,x2=180,y2=40)
+        approve(r)
+        obs(p)[0]["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[
+                {"order":1,"page":1,"x1":30,"y1":41,"x2":90,"y2":49},
+                {"order":2,"page":1,"x1":100,"y1":42,"x2":170,"y2":50},
+            ],
+        }
+        self.assertEqual(compare(r,p,m)["dimensions"]["provenance"].get("critical_error",0),0)
+
+    def test_annotation_tolerance_does_not_accept_distant_evidence(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]["source_zone"]["crops"][0]
+        expected.update(x1=20,y1=20,x2=180,y2=40)
+        approve(r)
+        obs(p)[0]["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[
+                {"order":1,"page":1,"x1":30,"y1":65,"x2":170,"y2":75},
+            ],
+        }
+        self.assertEqual(compare(r,p,m)["dimensions"]["provenance"]["critical_error"],1)
+
+
 if __name__=="__main__":unittest.main()
