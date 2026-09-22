@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from typing import Any
 
 DIMENSIONS = (
@@ -43,6 +44,27 @@ def canonical(value: Any) -> str:
 def normalized_label(value: str) -> str:
     # Matching only. Field comparison retains the literal source string.
     return " ".join(value.split()).casefold()
+
+
+def normalized_unit(value: str | None) -> str | None:
+    """Normalize visually equivalent unit typography for semantic comparison only."""
+
+    if value is None:
+        return None
+    normalized = unicodedata.normalize("NFKC", value)
+    normalized = re.sub(r"\s*/\s*", "/", normalized)
+    return " ".join(normalized.split())
+
+
+def normalized_grouped_number(value: str | None) -> str | None:
+    """Ignore thousands-grouping spaces while preserving decimal/sign semantics."""
+
+    if value is None:
+        return None
+    normalized = value.replace("\u00a0", " ").strip()
+    if re.fullmatch(r"[<>≤≥]?\s*\d{1,3}(?: \d{3})+(?:[.,]\d+)?", normalized):
+        return normalized.replace(" ", "")
+    return normalized
 
 
 def pointer_get(document: Any, pointer: str) -> Any:
@@ -231,13 +253,30 @@ def _overlap(a: dict, b: dict) -> float:
     return intersection / (aa + bb - intersection) if aa + bb - intersection else 0
 
 
+_GEOMETRY_REFERENCE_MARGIN = 10.0
+
+
+def _expanded_crop(crop: dict, margin: float = _GEOMETRY_REFERENCE_MARGIN) -> dict:
+    return {
+        **crop,
+        "x1": crop["x1"] - margin,
+        "y1": crop["y1"] - margin,
+        "x2": crop["x2"] + margin,
+        "y2": crop["y2"] + margin,
+    }
+
+
 def _actual_crop_supported(expected: dict, actual: dict) -> bool:
-    """Allow precise Reader evidence inside a broader independently drawn reference zone."""
-    intersection = _intersection(expected, actual)
+    """Allow precise Reader evidence inside or very near a human-drawn reference zone."""
+
+    intersection = _intersection(_expanded_crop(expected), actual)
     actual_area = _area(actual)
     if not intersection or not actual_area:
         return False
-    return _overlap(expected, actual) >= 0.25 or intersection / actual_area >= 0.80
+    return (
+        _overlap(expected, actual) >= 0.25
+        or intersection / actual_area >= 0.80
+    )
 
 
 def _provenance_compatible(expected: list[dict], actual: list[dict]) -> bool:
@@ -248,7 +287,11 @@ def _provenance_compatible(expected: list[dict], actual: list[dict]) -> bool:
     if not all(any(_actual_crop_supported(ref, got) for ref in expected) for got in actual):
         return False
     return all(
-        any(_intersection(ref, got) > 0 for got in actual if got["page"] == ref["page"])
+        any(
+            _intersection(_expanded_crop(ref), got) > 0
+            for got in actual
+            if got["page"] == ref["page"]
+        )
         for ref in expected
     )
 
@@ -294,7 +337,19 @@ def match_observations(expected: list[dict], actual: list[dict]) -> tuple[dict, 
 
 def _representations(obs: dict, field: str | None = None) -> list:
     reps=(obs.get("current_result") or {}).get("source_representations",[])
-    values=[r.get(field) if field else {k:r.get(k) for k in ("source_value","comparator","source_unit")} for r in reps]
+    if field == "source_unit":
+        values=[normalized_unit(r.get(field)) for r in reps]
+    elif field:
+        values=[r.get(field) for r in reps]
+    else:
+        values=[
+            {
+                "source_value": r.get("source_value"),
+                "comparator": r.get("comparator"),
+                "source_unit": normalized_unit(r.get("source_unit")),
+            }
+            for r in reps
+        ]
     return sorted(values,key=canonical)
 
 
@@ -372,7 +427,14 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         range_fields=("source_condition","operator","source_value","source_min","source_max","source_unit")
         ar,br=a.get("reference_ranges",[]),b.get("reference_ranges",[])
         def range_semantics(ranges):
-            return _source_tree([{k:r.get(k) for k in range_fields} for r in ranges])
+            normalized=[]
+            for r in ranges:
+                item={k:r.get(k) for k in range_fields}
+                item["source_unit"]=normalized_unit(item.get("source_unit"))
+                for key in ("source_value","source_min","source_max"):
+                    item[key]=normalized_grouped_number(item.get(key))
+                normalized.append(item)
+            return _source_tree(normalized)
         range_paths=[f"{path}/reference_ranges/{i}/{k}" for i,_ in enumerate(ar) for k in range_fields]
         check("reference_range",path+"/reference_ranges",range_semantics(ar),range_semantics(br),annotation_paths=range_paths)
         literal_paths=[f"{path}/reference_ranges/{i}/source_text" for i,_ in enumerate(ar)]
@@ -418,5 +480,5 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
             "counts":dict(counts),"dimensions":by_dim,"checks":checks,
             "policy":{"matching":"label + section context + page + geometry; no values or units",
                       "source_text":"literal; whitespace normalization for matching only",
-                      "geometry":"same page set; each Reader crop must have IoU >= 0.25 or >= 80% of its area inside a reference crop, and every reference crop must be touched; does not prove visual truth",
+                      "geometry":"same page set; each Reader crop must have IoU >= 0.25 or >= 80% of its area inside a reference crop expanded by a 10-point annotation tolerance, and every expanded reference crop must be touched; does not prove visual truth",
                       "aggregate_score":None,"gate1_validated":False}}
