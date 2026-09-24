@@ -88,11 +88,11 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();r["status"]="candidate"
         self.assertEqual(compare(r,p,m)["functional_verdict"],"CANDIDATE_REFERENCE")
 
-    def test_partial_never_passes(self):
+    def test_partial_can_pass_when_core_results_are_complete_and_exact(self):
         r,p,m=fixtures();p["status"]="partial"
         result=compare(r,p,m)
         self.assertEqual(result["extraction_status"],"partial")
-        self.assertEqual(result["functional_verdict"],"PARTIAL")
+        self.assertEqual(result["functional_verdict"],"PASS")
 
     def test_swapped_values_stay_with_source_labels(self):
         r,p,m=fixtures()
@@ -148,6 +148,20 @@ class ComparatorTests(unittest.TestCase):
         out=compare(r,p,m)
         self.assertGreater(out["counts"]["ambiguity"],0)
         self.assertNotEqual(out["functional_verdict"],"PASS")
+
+    def test_wrong_reference_range_does_not_fail_core_result_verdict(self):
+        r,p,m=fixtures()
+        obs(p)[0]["reference_ranges"][0]["source_max"]="200"
+        out=compare(r,p,m)
+        self.assertGreater(out["dimensions"]["reference_range"]["critical_error"],0)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
+    def test_wrong_geometry_does_not_fail_core_result_verdict(self):
+        r,p,m=fixtures()
+        obs(p)[0]["source_zone"]=zone(10,2)
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["provenance"]["critical_error"],1)
+        self.assertEqual(out["functional_verdict"],"PASS")
 
     def test_wrong_page_is_not_rescued_by_label_match(self):
         r,p,m=fixtures();obs(p)[0]["source_zone"]=zone(10,2)
