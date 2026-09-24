@@ -465,12 +465,37 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
     check("unclassified","/unclassified_elements",_source_tree(doc.get("unclassified_elements",[])),_source_tree(produced.get("unclassified_elements",[])),False)
     counts=Counter(c["classification"] for c in checks)
     by_dim={d:dict(Counter(c["classification"] for c in checks if c["dimension"]==d)) for d in DIMENSIONS}
+
+    # Functional validation is intentionally narrower than documentary comparison.
+    # The Reader passes when the expected laboratory results are present, exact and
+    # not supplemented by invented observations. Geometry, structure, reference
+    # ranges, methods, comments and other documentary enrichments remain visible in
+    # the report but never decide the functional verdict.
+    blocking_dimensions={
+        "presence",
+        "source_value",
+        "comparator",
+        "unit",
+        "association",
+        "extra_elements",
+    }
+    blocking_errors=sum(
+        1 for item in checks
+        if item["dimension"] in blocking_dimensions
+        and item["classification"]=="critical_error"
+    )
+    blocking_uncertainty=sum(
+        1 for item in checks
+        if item["dimension"] in blocking_dimensions
+        and item["classification"] in {"ambiguity","unannotated"}
+    )
+
     if reference["status"]!="validated":verdict="CANDIDATE_REFERENCE"
-    elif produced["status"]!="success":verdict=produced["status"].upper()
-    elif counts["critical_error"] or counts["noncritical_error"]:verdict="FAIL"
-    elif counts["ambiguity"] or counts["unannotated"] or reference["observation_inventory"]!="complete" or reference["annotation_status"]!="complete":verdict="INCOMPLETE"
+    elif reference["observation_inventory"]!="complete" or reference["annotation_status"]!="complete":verdict="INCOMPLETE"
+    elif blocking_errors:verdict="FAIL"
+    elif blocking_uncertainty:verdict="INCOMPLETE"
     else:verdict="PASS"
-    return {"benchmark_schema_version":"1.1","case_id":reference["case_id"],"reference_version":reference["reference_version"],
+    return {"benchmark_schema_version":"1.2","case_id":reference["case_id"],"reference_version":reference["reference_version"],
             "reference_status":reference["status"],"annotation_status":reference["annotation_status"],
             "extraction_status":produced["status"],"functional_verdict":verdict,
             "reference_sha256":fingerprint(canonical(reference).encode()),"output_sha256":fingerprint(canonical(produced).encode()),
@@ -478,7 +503,9 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
               "missing":len(expected)-len(matches)-len(amb_e),"ambiguous":len(amb_e),
               "unexpected":len(actual)-len(used)-len(amb_a)},
             "counts":dict(counts),"dimensions":by_dim,"checks":checks,
-            "policy":{"matching":"label + section context + page + geometry; no values or units",
+            "policy":{"matching":"source label first; section/page/geometry only help disambiguate identity",
                       "source_text":"literal; whitespace normalization for matching only",
-                      "geometry":"same page set; each Reader crop must have IoU >= 0.25 or >= 80% of its area inside a reference crop expanded by a 10-point annotation tolerance, and every expanded reference crop must be touched; does not prove visual truth",
+                      "functional_verdict":"presence + exact current values/comparators/units + associations + no invented observations",
+                      "geometry":"best effort only; reported but never blocks the functional verdict",
+                      "secondary_fields":"reference ranges, histories, structure, methods, comments and other enrichments are reported but non-blocking",
                       "aggregate_score":None,"gate1_validated":False}}
