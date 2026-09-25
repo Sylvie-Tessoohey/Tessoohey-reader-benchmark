@@ -18,7 +18,8 @@ from typing import Any
 
 DIMENSIONS = (
     "presence", "source_label", "source_value", "comparator", "unit",
-    "current_vs_history", "reference_range", "association", "provenance",
+    "current_vs_history", "history_presence", "history_date", "history_value",
+    "history_association", "reference_range", "association", "provenance",
     "structure", "extra_elements", "unclassified",
 )
 
@@ -361,6 +362,60 @@ def _source_tree(value: Any) -> Any:
     return value
 
 
+def _history_dates(obs: dict) -> list[dict]:
+    return sorted(
+        [
+            {
+                "source_date": item.get("source_date"),
+                "normalized_date": item.get("normalized_date"),
+            }
+            for item in obs.get("previous_results", [])
+        ],
+        key=canonical,
+    )
+
+
+def _history_values(obs: dict) -> list:
+    return sorted(
+        [
+            [
+                {
+                    "source_value": rep.get("source_value"),
+                    "comparator": rep.get("comparator"),
+                    "source_unit": normalized_unit(rep.get("source_unit")),
+                }
+                for rep in item.get("source_representations", [])
+            ]
+            for item in obs.get("previous_results", [])
+        ],
+        key=canonical,
+    )
+
+
+def _history_pairs(obs: dict) -> list:
+    return sorted(
+        [
+            {
+                "source_date": item.get("source_date"),
+                "normalized_date": item.get("normalized_date"),
+                "representations": sorted(
+                    [
+                        {
+                            "source_value": rep.get("source_value"),
+                            "comparator": rep.get("comparator"),
+                            "source_unit": normalized_unit(rep.get("source_unit")),
+                        }
+                        for rep in item.get("source_representations", [])
+                    ],
+                    key=canonical,
+                ),
+            }
+            for item in obs.get("previous_results", [])
+        ],
+        key=canonical,
+    )
+
+
 def _structure(doc: dict) -> list:
     result=[]
     def sections(ss,parent):
@@ -421,7 +476,36 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         for dim,field in (("source_value","source_value"),("comparator","comparator"),("unit","source_unit")):
             field_paths=[f"{path}/current_result/source_representations/{k}/{field}" for k,_ in enumerate(a.get("current_result",{}).get("source_representations",[]))]
             check(dim,path+"/current_result",_representations(a,field),_representations(b,field),annotation_paths=field_paths)
-        check("current_vs_history",path+"/previous_results",_source_tree(a.get("previous_results",[])),_source_tree(b.get("previous_results",[])))
+        check(
+            "current_vs_history",
+            path + "/previous_results",
+            _source_tree(a.get("previous_results", [])),
+            _source_tree(b.get("previous_results", [])),
+        )
+        check(
+            "history_presence",
+            path + "/previous_results",
+            len(a.get("previous_results", [])),
+            len(b.get("previous_results", [])),
+        )
+        check(
+            "history_date",
+            path + "/previous_results",
+            _history_dates(a),
+            _history_dates(b),
+        )
+        check(
+            "history_value",
+            path + "/previous_results",
+            _history_values(a),
+            _history_values(b),
+        )
+        check(
+            "history_association",
+            path + "/previous_results",
+            _history_pairs(a),
+            _history_pairs(b),
+        )
         # A glyph ambiguity in the literal range text must not hide wrong bounds,
         # units or conditions. Keep those fields coupled in one critical check.
         range_fields=("source_condition","operator","source_value","source_min","source_max","source_unit")
@@ -477,6 +561,11 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         "comparator",
         "unit",
         "association",
+        "current_vs_history",
+        "history_presence",
+        "history_date",
+        "history_value",
+        "history_association",
         "extra_elements",
     }
     blocking_errors=sum(
@@ -507,5 +596,5 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
                       "source_text":"literal; whitespace normalization for matching only",
                       "functional_verdict":"presence + exact current values/comparators/units + associations + no invented observations",
                       "geometry":"best effort only; reported but never blocks the functional verdict",
-                      "secondary_fields":"reference ranges, histories, structure, methods, comments and other enrichments are reported but non-blocking",
+                      "secondary_fields":"reference ranges, structure, methods, comments and other enrichments are reported but non-blocking",
                       "aggregate_score":None,"gate1_validated":False}}
