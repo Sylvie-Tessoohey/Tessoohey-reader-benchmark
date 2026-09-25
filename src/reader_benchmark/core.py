@@ -183,8 +183,14 @@ def validate_reference(reference: dict) -> None:
                     yield from terminal_paths(child, f"{path}/{i}")
             else:
                 yield path
+        annotation_paths = (
+            path
+            for path in terminal_paths(doc)
+            if path != "/schema_version"
+        )
         if reference["observation_inventory"] != "complete" or any(
-            annotation(reference, path) == "unannotated" for path in terminal_paths(doc)
+            annotation(reference, path) == "unannotated"
+            for path in annotation_paths
         ):
             raise InputError("Complete annotation requires a complete inventory and no unannotated fields")
     ids = []
