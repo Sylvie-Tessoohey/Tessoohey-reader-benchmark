@@ -88,6 +88,19 @@ class ComparatorTests(unittest.TestCase):
         r,p,m=fixtures();r["status"]="candidate"
         self.assertEqual(compare(r,p,m)["functional_verdict"],"CANDIDATE_REFERENCE")
 
+    def test_complete_reference_does_not_require_schema_version_annotation(self):
+        r,p,m=fixtures()
+        r["annotations"]={
+            "/document":{"status":"verified"},
+            "/parts":{"status":"verified"},
+            "/unclassified_elements":{"status":"verified"},
+        }
+        r["annotation_status"]="complete"
+        r["observation_inventory"]="complete"
+        approve(r)
+        out=compare(r,p,m)
+        self.assertIn(out["functional_verdict"],{"PASS","FAIL","INCOMPLETE"})
+
     def test_partial_can_pass_when_core_results_are_complete_and_exact(self):
         r,p,m=fixtures();p["status"]="partial"
         result=compare(r,p,m)
