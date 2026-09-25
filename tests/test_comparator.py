@@ -117,6 +117,47 @@ class ComparatorTests(unittest.TestCase):
         self.assertGreater(out["dimensions"]["current_vs_history"]["critical_error"],0)
         self.assertGreater(out["dimensions"]["source_value"]["critical_error"],0)
 
+    def test_history_missing_is_classified_by_presence(self):
+        r,p,m=fixtures();a=obs(r["documentary_json"])[0]
+        a["previous_results"]=[{"source_date":"2025-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]}]
+        approve(r)
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["history_presence"]["critical_error"],1)
+
+    def test_history_wrong_date_is_classified(self):
+        r,p,m=fixtures();a=obs(r["documentary_json"])[0]
+        a["previous_results"]=[{"source_date":"2025-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]}]
+        approve(r)
+        obs(p)[0]["previous_results"]=[{"source_date":"2024-12-31","source_representations":[{"source_value":"9","source_unit":"unit-A"}]}]
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["history_date"]["critical_error"],1)
+        self.assertEqual(out["dimensions"]["history_value"].get("critical_error",0),0)
+
+    def test_history_wrong_value_is_classified(self):
+        r,p,m=fixtures();a=obs(r["documentary_json"])[0]
+        a["previous_results"]=[{"source_date":"2025-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]}]
+        approve(r)
+        obs(p)[0]["previous_results"]=[{"source_date":"2025-01-01","source_representations":[{"source_value":"8","source_unit":"unit-A"}]}]
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["history_value"]["critical_error"],1)
+        self.assertEqual(out["dimensions"]["history_date"].get("critical_error",0),0)
+
+    def test_history_date_value_pairing_is_classified_as_association(self):
+        r,p,m=fixtures();a=obs(r["documentary_json"])[0]
+        a["previous_results"]=[
+            {"source_date":"2025-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]},
+            {"source_date":"2024-01-01","source_representations":[{"source_value":"7","source_unit":"unit-A"}]},
+        ]
+        approve(r)
+        obs(p)[0]["previous_results"]=[
+            {"source_date":"2025-01-01","source_representations":[{"source_value":"7","source_unit":"unit-A"}]},
+            {"source_date":"2024-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]},
+        ]
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["history_date"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["history_value"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["history_association"]["critical_error"],1)
+
     def test_reference_as_result_is_critical(self):
         r,p,m=fixtures();obs(p)[0]["current_result"]["source_representations"][0]["source_value"]="20"
         self.assertEqual(compare(r,p,m)["dimensions"]["source_value"]["critical_error"],1)
