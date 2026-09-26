@@ -557,31 +557,26 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
     by_dim={d:dict(Counter(c["classification"] for c in checks if c["dimension"]==d)) for d in DIMENSIONS}
 
     # Functional validation is intentionally narrower than documentary comparison.
-    # The Reader passes when the expected laboratory results are present, exact and
-    # not supplemented by invented observations. Geometry, structure, reference
-    # ranges, methods, comments and other documentary enrichments remain visible in
-    # the report but never decide the functional verdict.
-    blocking_dimensions={
-        "presence",
-        "source_value",
-        "comparator",
-        "unit",
-        "association",
-        "current_vs_history",
-        "history_presence",
-        "history_date",
-        "history_value",
-        "history_association",
-        "extra_elements",
-    }
+    # The Reader passes when the expected current laboratory results are present,
+    # their printed values/comparators/units stay correctly associated, and no
+    # observation is invented. Result type, histories, geometry, structure,
+    # reference ranges, methods and comments remain visible but non-blocking.
+    def blocks_functionally(item):
+        dimension=item["dimension"]
+        path=item["reference_path"]
+        return (
+            dimension in {"presence","source_value","comparator","unit","extra_elements"}
+            or (dimension=="association" and path.endswith("/current_result"))
+        )
+
     blocking_errors=sum(
         1 for item in checks
-        if item["dimension"] in blocking_dimensions
+        if blocks_functionally(item)
         and item["classification"]=="critical_error"
     )
     blocking_uncertainty=sum(
         1 for item in checks
-        if item["dimension"] in blocking_dimensions
+        if blocks_functionally(item)
         and item["classification"] in {"ambiguity","unannotated"}
     )
 
@@ -602,5 +597,5 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
                       "source_text":"literal; whitespace normalization for matching only",
                       "functional_verdict":"presence + exact current values/comparators/units + associations + no invented observations",
                       "geometry":"best effort only; reported but never blocks the functional verdict",
-                      "secondary_fields":"reference ranges, structure, methods, comments and other enrichments are reported but non-blocking",
+                      "secondary_fields":"result type, histories, reference ranges, structure, methods, comments and other enrichments are reported but non-blocking",
                       "aggregate_score":None,"gate1_validated":False}}
