@@ -3,7 +3,7 @@
 from copy import deepcopy
 import unittest
 
-from reader_benchmark.core import InputError, compare, reference_payload_sha256
+from reader_benchmark.core import InputError, compare, normalized_label, reference_payload_sha256
 
 
 def zone(y=10,page=1):
@@ -129,11 +129,13 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(out["dimensions"]["source_label"]["noncritical_error"],1)
         self.assertEqual(out["functional_verdict"],"PASS")
 
-    def test_embedded_marker_is_not_removed_from_identity(self):
+    def test_embedded_marker_is_not_removed_from_identity_normalization(self):
+        self.assertNotEqual(normalized_label("ALPHA*BETA"), normalized_label("ALPHABETA"))
         r,p,m=fixtures()
         obs(r["documentary_json"])[0]["source_label"]="ALPHA*BETA"
         approve(r)
         obs(p)[0]["source_label"]="ALPHABETA"
+        obs(p)[0]["source_zone"]=zone(10,2)
         out=compare(r,p,m)
         self.assertEqual(out["observations"]["missing"],1)
         self.assertEqual(out["observations"]["unexpected"],1)
