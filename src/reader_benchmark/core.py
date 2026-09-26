@@ -541,7 +541,7 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
               sorted((r.get("source_text") for r in br),key=canonical),False,annotation_paths=literal_paths)
         # Coupled comparisons detect swaps hidden by identical per-field multisets.
         check("association",path+"/current_result",_representations(a),_representations(b))
-        check("association",path+"/current_result/type",a.get("current_result",{}).get("type"),b.get("current_result",{}).get("type"))
+        check("association",path+"/current_result/type",a.get("current_result",{}).get("type"),b.get("current_result",{}).get("type"),False)
         check("structure",path,{"sections":item["context"],"parts":item["part_types"]},
               {"sections":bitem["context"],"parts":bitem["part_types"]},False)
         ac,bc=_crops(a),_crops(b)
