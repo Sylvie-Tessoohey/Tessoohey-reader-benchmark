@@ -418,6 +418,42 @@ class ComparatorTests(unittest.TestCase):
         }
         self.assertEqual(compare(r,p,m)["dimensions"]["provenance"].get("critical_error",0),0)
 
+    def test_precise_reader_crop_inside_broad_reference_zone_can_disambiguate_truncated_label(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]
+        expected["source_label"]="Changed glycoproteins (gastric/intestinal mucosa)"
+        expected["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[{"order":1,"page":1,"x1":0,"y1":0,"x2":200,"y2":200}],
+        }
+        approve(r)
+        actual=obs(p)[0]
+        actual["source_label"]="Changed glycoproteins"
+        actual["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[{"order":1,"page":1,"x1":20,"y1":20,"x2":120,"y2":35}],
+        }
+        out=compare(r,p,m)
+        self.assertEqual(out["observations"]["matched"],2)
+        self.assertEqual(out["dimensions"]["source_label"]["noncritical_error"],1)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
+    def test_broad_reference_zone_does_not_match_similar_label_on_distant_page(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]
+        expected["source_label"]="Changed glycoproteins (gastric/intestinal mucosa)"
+        expected["source_zone"]={
+            "coordinate_system":"pdf_points_top_left",
+            "crops":[{"order":1,"page":1,"x1":0,"y1":0,"x2":200,"y2":200}],
+        }
+        approve(r)
+        actual=obs(p)[0]
+        actual["source_label"]="Changed glycoproteins"
+        actual["source_zone"]=zone(10,2)
+        out=compare(r,p,m)
+        self.assertEqual(out["observations"]["missing"],1)
+        self.assertEqual(out["observations"]["unexpected"],1)
+
     def test_annotation_tolerance_does_not_accept_distant_evidence(self):
         r,p,m=fixtures()
         expected=obs(r["documentary_json"])[0]["source_zone"]["crops"][0]
