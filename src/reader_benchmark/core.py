@@ -77,6 +77,31 @@ def normalized_grouped_number(value: str | None) -> str | None:
     return normalized
 
 
+def normalized_source_value(value: str | None) -> str | None:
+    """Normalize only comparator typography/spacing in a printed source value."""
+
+    if value is None:
+        return None
+    normalized = unicodedata.normalize("NFKC", value).replace("\u00a0", " ").strip()
+    match = re.fullmatch(r"(?P<cmp><=|>=|<|>)\s*(?P<number>\d+(?:[.,]\d+)?)", normalized)
+    if match is None:
+        return normalized
+    return f"{match.group('cmp')}{match.group('number')}"
+
+
+def effective_comparator(representation: dict) -> str | None:
+    """Use an explicit comparator or the same comparator preserved in source_value."""
+
+    explicit = representation.get("comparator")
+    if explicit is not None:
+        return explicit
+    source_value = normalized_source_value(representation.get("source_value"))
+    if source_value is None:
+        return None
+    match = re.match(r"^(<=|>=|<|>)", source_value)
+    return match.group(1) if match else None
+
+
 def pointer_get(document: Any, pointer: str) -> Any:
     result = document
     if pointer == "":
@@ -355,13 +380,17 @@ def _representations(obs: dict, field: str | None = None) -> list:
     reps=(obs.get("current_result") or {}).get("source_representations",[])
     if field == "source_unit":
         values=[normalized_unit(r.get(field)) for r in reps]
+    elif field == "source_value":
+        values=[normalized_source_value(r.get(field)) for r in reps]
+    elif field == "comparator":
+        values=[effective_comparator(r) for r in reps]
     elif field:
         values=[r.get(field) for r in reps]
     else:
         values=[
             {
-                "source_value": r.get("source_value"),
-                "comparator": r.get("comparator"),
+                "source_value": normalized_source_value(r.get("source_value")),
+                "comparator": effective_comparator(r),
                 "source_unit": normalized_unit(r.get("source_unit")),
             }
             for r in reps
@@ -603,7 +632,7 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
               "unexpected":len(actual)-len(used)-len(amb_a)},
             "counts":dict(counts),"dimensions":by_dim,"checks":checks,
             "policy":{"matching":"source label first; section/page/geometry only help disambiguate identity",
-                      "source_text":"literal; whitespace normalization for matching only",
+                      "source_text":"literal; conservative typography normalization for identity and current-value comparison only",
                       "functional_verdict":"presence + exact current values/comparators/units + associations + no invented observations",
                       "geometry":"best effort only; reported but never blocks the functional verdict",
                       "secondary_fields":"reference ranges, structure, methods, comments and other enrichments are reported but non-blocking",
