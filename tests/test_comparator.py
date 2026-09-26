@@ -107,6 +107,37 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(result["extraction_status"],"partial")
         self.assertEqual(result["functional_verdict"],"PASS")
 
+    def test_trailing_footnote_marker_does_not_break_identity_matching(self):
+        r,p,m=fixtures()
+        item=obs(r["documentary_json"])[0]
+        item["source_label"]="ALPHA **"
+        item["source_zone"]["crops"][0].update(x1=0,y1=0,x2=200,y2=200)
+        approve(r)
+        obs(p)[0]["source_label"]="ALPHA"
+        out=compare(r,p,m)
+        self.assertEqual(out["observations"]["matched"],2)
+        self.assertEqual(out["dimensions"]["source_label"]["noncritical_error"],1)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
+    def test_dash_spacing_does_not_break_identity_matching(self):
+        r,p,m=fixtures()
+        obs(r["documentary_json"])[0]["source_label"]="SGOT-ASAT"
+        approve(r)
+        obs(p)[0]["source_label"]="SGOT - ASAT"
+        out=compare(r,p,m)
+        self.assertEqual(out["observations"]["matched"],2)
+        self.assertEqual(out["dimensions"]["source_label"]["noncritical_error"],1)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
+    def test_embedded_marker_is_not_removed_from_identity(self):
+        r,p,m=fixtures()
+        obs(r["documentary_json"])[0]["source_label"]="ALPHA*BETA"
+        approve(r)
+        obs(p)[0]["source_label"]="ALPHABETA"
+        out=compare(r,p,m)
+        self.assertEqual(out["observations"]["missing"],1)
+        self.assertEqual(out["observations"]["unexpected"],1)
+
     def test_swapped_values_stay_with_source_labels(self):
         r,p,m=fixtures()
         obs(p)[0]["current_result"],obs(p)[1]["current_result"]=obs(p)[1]["current_result"],obs(p)[0]["current_result"]
