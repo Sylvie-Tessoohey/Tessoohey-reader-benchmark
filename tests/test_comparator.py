@@ -145,6 +145,14 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(out["observations"]["matched"],2)
         self.assertEqual(out["dimensions"]["source_value"]["critical_error"],2)
 
+    def test_result_type_difference_is_visible_but_nonblocking(self):
+        r,p,m=fixtures()
+        obs(r["documentary_json"])[0]["current_result"]["type"]="qualitative"
+        approve(r)
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["association"]["noncritical_error"],1)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
     def test_invented_unit_is_critical(self):
         r,p,m=fixtures();obs(p)[0]["current_result"]["source_representations"][0]["source_unit"]="invented"
         self.assertEqual(compare(r,p,m)["dimensions"]["unit"]["critical_error"],1)
