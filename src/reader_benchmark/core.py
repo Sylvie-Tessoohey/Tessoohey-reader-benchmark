@@ -576,11 +576,6 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         "comparator",
         "unit",
         "association",
-        "current_vs_history",
-        "history_presence",
-        "history_date",
-        "history_value",
-        "history_association",
         "extra_elements",
     }
     blocking_errors=sum(
