@@ -43,8 +43,17 @@ def canonical(value: Any) -> str:
 
 
 def normalized_label(value: str) -> str:
-    # Matching only. Field comparison retains the literal source string.
-    return " ".join(value.split()).casefold()
+    """Normalize only benign printed label typography for identity matching.
+
+    Literal source labels are still compared and reported separately.  This helper
+    deliberately does not remove words, parentheses or bracketed qualifiers.
+    """
+    normalized = unicodedata.normalize("NFKC", value)
+    normalized = re.sub(r"[‐‑‒–—−]", "-", normalized)
+    normalized = re.sub(r"\s*-\s*", "-", normalized)
+    normalized = re.sub(r"\s*/\s*", "/", normalized)
+    normalized = re.sub(r"\s+(?:\*+|#+)\s*$", "", normalized)
+    return " ".join(normalized.split()).casefold()
 
 
 def normalized_unit(value: str | None) -> str | None:
