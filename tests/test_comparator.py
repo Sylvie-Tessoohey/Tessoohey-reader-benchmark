@@ -168,6 +168,14 @@ class ComparatorTests(unittest.TestCase):
         out=compare(r,p,m)
         self.assertEqual(out["dimensions"]["history_presence"]["critical_error"],1)
 
+    def test_missing_history_is_reported_but_nonblocking(self):
+        r,p,m=fixtures();a=obs(r["documentary_json"])[0]
+        a["previous_results"]=[{"source_date":"2025-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]}]
+        approve(r)
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["history_presence"]["critical_error"],1)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
     def test_history_wrong_date_is_classified(self):
         r,p,m=fixtures();a=obs(r["documentary_json"])[0]
         a["previous_results"]=[{"source_date":"2025-01-01","source_representations":[{"source_value":"9","source_unit":"unit-A"}]}]
