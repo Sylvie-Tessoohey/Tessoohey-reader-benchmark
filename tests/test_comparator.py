@@ -155,6 +155,34 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(out["dimensions"]["association"]["noncritical_error"],1)
         self.assertEqual(out["functional_verdict"],"PASS")
 
+    def test_comparator_spacing_in_source_value_is_equivalent(self):
+        r,p,m=fixtures()
+        rep=obs(r["documentary_json"])[0]["current_result"]["source_representations"][0]
+        rep["source_value"]="<5"
+        rep["comparator"]="<"
+        approve(r)
+        actual=obs(p)[0]["current_result"]["source_representations"][0]
+        actual["source_value"]="< 5"
+        actual["comparator"]="<"
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["source_value"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["association"].get("critical_error",0),0)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
+    def test_comparator_redundancy_does_not_penalize_parsed_field(self):
+        r,p,m=fixtures()
+        rep=obs(r["documentary_json"])[0]["current_result"]["source_representations"][0]
+        rep["source_value"]="<=2.0"
+        rep["comparator"]=None
+        approve(r)
+        actual=obs(p)[0]["current_result"]["source_representations"][0]
+        actual["source_value"]="<=2.0"
+        actual["comparator"]="<="
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["comparator"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["association"].get("critical_error",0),0)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
     def test_invented_unit_is_critical(self):
         r,p,m=fixtures();obs(p)[0]["current_result"]["source_representations"][0]["source_unit"]="invented"
         self.assertEqual(compare(r,p,m)["dimensions"]["unit"]["critical_error"],1)
