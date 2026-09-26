@@ -342,9 +342,10 @@ def matching_score(a: dict, b: dict) -> float:
     la, lb = (normalized_label(x["obs"].get("source_label", "")) for x in (a,b))
     ac, bc = _crops(a["obs"]), _crops(b["obs"])
     overlap = max((_overlap(x,y) for x in ac for y in bc), default=0)
+    supported = any(_actual_crop_supported(ref, got) for ref in ac for got in bc)
     exact = bool(la) and la == lb
     similarity = SequenceMatcher(None,la,lb).ratio()
-    if not exact and not (overlap >= .25 and similarity >= .35):
+    if not exact and not ((overlap >= .25 or supported) and similarity >= .35):
         return 0
     same_page = bool({c["page"] for c in ac} & {c["page"] for c in bc})
     context = a["context"] == b["context"]
