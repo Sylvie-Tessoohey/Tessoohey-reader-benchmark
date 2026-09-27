@@ -385,6 +385,36 @@ class ComparatorTests(unittest.TestCase):
         self.assertGreater(compare(r,p,m)["dimensions"]["structure"]["noncritical_error"],0)
 
 
+    def test_casing_only_differences_are_equivalent(self):
+        r,p,m=fixtures()
+        expected=obs(r["documentary_json"])[0]
+        expected["source_label"]="Alpha Marker"
+        expected["current_result"]["type"]="qualitative"
+        expected["current_result"]["source_representations"]=[
+            {"source_value":"NÉGATIF","text_value":"NÉGATIF","source_unit":"UI/mL","comparator":None}
+        ]
+        expected["method"]="ECLIA"
+        r["documentary_json"]["parts"][0]["sections"][0]["source_title"]="Synthetic Section"
+        approve(r)
+
+        actual=obs(p)[0]
+        actual["source_label"]="alpha marker"
+        actual["current_result"]["type"]="QUALITATIVE"
+        actual["current_result"]["source_representations"]=[
+            {"source_value":"négatif","text_value":"négatif","source_unit":"ui/ml","comparator":None}
+        ]
+        actual["method"]="eclia"
+        p["parts"][0]["sections"][0]["source_title"]="synthetic section"
+
+        out=compare(r,p,m)
+        self.assertEqual(out["dimensions"]["source_label"].get("noncritical_error",0),0)
+        self.assertEqual(out["dimensions"]["source_value"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["unit"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["association"].get("critical_error",0),0)
+        self.assertEqual(out["dimensions"]["association"].get("noncritical_error",0),0)
+        self.assertEqual(out["dimensions"]["structure"].get("noncritical_error",0),0)
+        self.assertEqual(out["functional_verdict"],"PASS")
+
     def test_micro_sign_and_greek_mu_are_equivalent_in_units(self):
         r,p,m=fixtures()
         obs(r["documentary_json"])[0]["current_result"]["source_representations"][0]["source_unit"]="µg/L"
