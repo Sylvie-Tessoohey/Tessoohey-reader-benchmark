@@ -42,6 +42,19 @@ def canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
 
+def casefold_text_tree(value: Any) -> Any:
+    """Ignore letter casing only while preserving all other textual content."""
+    if isinstance(value, str):
+        return unicodedata.normalize("NFKC", value).casefold()
+    if isinstance(value, list):
+        return [casefold_text_tree(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(casefold_text_tree(item) for item in value)
+    if isinstance(value, dict):
+        return {key: casefold_text_tree(item) for key, item in value.items()}
+    return value
+
+
 def normalized_label(value: str) -> str:
     """Normalize only benign printed label typography for identity matching.
 
@@ -494,7 +507,7 @@ def compare(reference: dict, produced: dict, run: dict) -> dict:
         if state!="verified":
             add(dimension,"ambiguity" if state=="ambiguous" else "unannotated",path,detail="Reference field not scored")
             return
-        same=canonical(expected)==canonical(actual) if equal is None else equal
+        same=canonical(casefold_text_tree(expected))==canonical(casefold_text_tree(actual)) if equal is None else equal
         add(dimension,"match" if same else ("critical_error" if critical else "noncritical_error"),path,expected,actual)
     expected=observations(reference["documentary_json"])
     actual=observations(produced)
