@@ -21,6 +21,8 @@ DIMENSIONS = (
     "current_vs_history", "history_presence", "history_date", "history_value",
     "history_association", "reference_range", "association", "provenance",
     "structure", "extra_elements", "unclassified",
+    "v2_current", "v2_history", "v2_references", "v2_structure",
+    "v2_documentary", "v2_source",
 )
 
 
@@ -34,8 +36,19 @@ def fingerprint(data: bytes) -> str:
 
 def reference_payload_sha256(reference: dict) -> str:
     """Approval covers truth, annotation coverage, PDF identity and reference version."""
-    keys=("case_id","reference_version","source","documentary_json","annotations","observation_inventory","annotation_status")
-    return fingerprint(canonical({k:reference[k] for k in keys}).encode())
+
+    keys = (
+        "case_id",
+        "reference_version",
+        "source",
+        "documentary_json",
+        "annotations",
+        "observation_inventory",
+        "annotation_status",
+    )
+    if reference.get("reference_schema_version") == "1.2":
+        keys = ("reference_schema_version", *keys, "reader_v2_oracle")
+    return fingerprint(canonical({k: reference[k] for k in keys}).encode())
 
 
 def canonical(value: Any) -> str:
@@ -184,9 +197,403 @@ def observations(document: dict) -> list[dict]:
     return output
 
 
+def _validate_v2_oracle(oracle: Any) -> None:
+    if not isinstance(oracle, dict):
+        raise InputError("Reference schema 1.2 requires reader_v2_oracle")
+    if oracle.get("oracle_version") != "1":
+        raise InputError("Unsupported Reader v2 oracle version")
+    if oracle.get("schema_version") != "2.0":
+        raise InputError("Reader v2 oracle must target schema 2.0")
+    expected = oracle.get("expected")
+    if not isinstance(expected, dict) or not expected:
+        raise InputError("Reader v2 oracle requires expected invariants")
+    if expected.get("status") != "success":
+        raise InputError("Reader v2 Gold oracle must describe a successful extraction")
+    fingerprint_value = expected.get("current_set_md5")
+    if not isinstance(fingerprint_value, str) or not re.fullmatch(r"[0-9a-f]{32}", fingerprint_value):
+        raise InputError("Reader v2 oracle requires current_set_md5")
+    integer_fields = (
+        "observation_count",
+        "current_representation_count",
+        "previous_result_count",
+        "previous_representation_count",
+        "reference_rule_count",
+        "method_count",
+        "comment_count",
+        "section_title_count",
+        "unclassified_count",
+        "error_count",
+    )
+    for field in integer_fields:
+        if field in expected and (
+            not isinstance(expected[field], int) or expected[field] < 0
+        ):
+            raise InputError(f"Invalid Reader v2 oracle field: {field}")
+    for field in (
+        "reference_condition_count",
+        "reference_rules_with_conditions",
+        "reference_condition_unique_text_count",
+        "raw_block_count",
+        "part_count",
+    ):
+        if field in expected and (
+            not isinstance(expected[field], int) or expected[field] < 0
+        ):
+            raise InputError(f"Invalid Reader v2 oracle field: {field}")
+    for field in (
+        "current_md5",
+        "section_title_hashes_md5",
+        "reference_condition_unique_text_hashes_md5",
+    ):
+        if field in expected and (
+            not isinstance(expected[field], str)
+            or not re.fullmatch(r"[0-9a-f]{32}", expected[field])
+        ):
+            raise InputError(f"Invalid Reader v2 oracle fingerprint: {field}")
+    if "read_modes" in expected and (
+        not isinstance(expected["read_modes"], list)
+        or not all(isinstance(item, str) and item for item in expected["read_modes"])
+    ):
+        raise InputError("Invalid Reader v2 read_modes oracle")
+
+
+def _diagnostic_md5(text: str) -> str:
+    return hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _v2_sections(part: dict):
+    for section in part.get("sections") or []:
+        yield section
+        for child in section.get("subsections") or []:
+            yield from _v2_section_tree(child)
+    for subpart in part.get("subparts") or []:
+        yield from _v2_sections(subpart)
+
+
+def _v2_section_tree(section: dict):
+    yield section
+    for child in section.get("subsections") or []:
+        yield from _v2_section_tree(child)
+
+
+def _v2_observations(produced: dict) -> list[dict]:
+    output = []
+    for part in produced.get("parts") or []:
+        for section in _v2_sections(part):
+            output.extend(section.get("observations") or [])
+    return output
+
+
+def _v2_block_order(produced: dict) -> dict[str, tuple[int, int]]:
+    order = {}
+    for block in produced.get("raw_blocks") or []:
+        block_id = block.get("id")
+        page = block.get("page")
+        position = block.get("order")
+        if isinstance(block_id, str) and isinstance(page, int) and isinstance(position, int):
+            order[block_id] = (page, position)
+    return order
+
+
+def _v2_representation_order(rep: dict, block_order: dict[str, tuple[int, int]]) -> tuple[int, int]:
+    provenance = rep.get("provenance") or {}
+    candidates = [
+        block_order[block_id]
+        for block_id in provenance.get("block_ids") or []
+        if block_id in block_order
+    ]
+    return min(candidates) if candidates else (10**9, 10**9)
+
+
+def _v2_reference_diagnostics(observations_v2: list[dict]) -> tuple[int, int, int, int, str]:
+    rule_count = 0
+    condition_count = 0
+    rules_with_conditions = 0
+    condition_hashes = set()
+    for observation in observations_v2:
+        references = list(observation.get("references") or [])
+        for measurement in observation.get("measurements") or []:
+            references.extend(measurement.get("references") or [])
+        for reference in references:
+            for rule in reference.get("rules") or []:
+                rule_count += 1
+                conditions = rule.get("conditions") or []
+                if conditions:
+                    rules_with_conditions += 1
+                condition_count += len(conditions)
+                for condition in conditions:
+                    text = condition.get("text")
+                    if isinstance(text, str) and text:
+                        condition_hashes.add(_diagnostic_md5(text))
+    return (
+        rule_count,
+        condition_count,
+        rules_with_conditions,
+        len(condition_hashes),
+        _diagnostic_md5("\n".join(sorted(condition_hashes))),
+    )
+
+
+def _v2_documentary_counts(produced: dict, observations_v2: list[dict]) -> tuple[int, int, int, str]:
+    methods = set()
+    comments = set()
+    title_hashes = []
+
+    def add_text(bucket: set, item: Any) -> None:
+        if not isinstance(item, dict):
+            return
+        text = item.get("text")
+        block_ids = tuple((item.get("provenance") or {}).get("block_ids") or [])
+        if isinstance(text, str) and text:
+            bucket.add((text, block_ids))
+
+    for part in produced.get("parts") or []:
+        for section in _v2_sections(part):
+            title = section.get("title")
+            if isinstance(title, str) and title:
+                title_hashes.append(_diagnostic_md5(title))
+            add_text(methods, section.get("method"))
+            for comment in section.get("comments") or []:
+                add_text(comments, comment)
+
+    for observation in observations_v2:
+        add_text(methods, observation.get("method"))
+        for comment in observation.get("comments") or []:
+            add_text(comments, comment)
+        for measurement in observation.get("measurements") or []:
+            add_text(methods, measurement.get("method"))
+            for comment in measurement.get("comments") or []:
+                add_text(comments, comment)
+
+    return (
+        len(methods),
+        len(comments),
+        len(title_hashes),
+        _diagnostic_md5("\n".join(sorted(title_hashes))),
+    )
+
+
+def _v2_metrics(produced: dict) -> dict:
+    observations_v2 = _v2_observations(produced)
+    block_order = _v2_block_order(produced)
+    current_hashes = []
+    current_lines = []
+    current_representation_count = 0
+    previous_result_count = 0
+    previous_representation_count = 0
+
+    for observation in observations_v2:
+        representations = [
+            representation
+            for measurement in observation.get("measurements") or []
+            for representation in measurement.get("representations") or []
+        ]
+        representations.sort(key=lambda item: _v2_representation_order(item, block_order))
+        current_representation_count += len(representations)
+        reps = ";".join(
+            f"{item.get('value', '')}~{item.get('unit') or ''}~{item.get('comparator') or ''}"
+            for item in representations
+        )
+        line = f"{observation.get('label', '')}|{reps}"
+        current_lines.append(line)
+        current_hashes.append(_diagnostic_md5(line))
+
+        previous = list(observation.get("previous_results") or [])
+        for measurement in observation.get("measurements") or []:
+            previous.extend(measurement.get("previous_results") or [])
+        previous_result_count += len(previous)
+        previous_representation_count += sum(
+            len(item.get("representations") or []) for item in previous
+        )
+
+    (
+        reference_rule_count,
+        reference_condition_count,
+        reference_rules_with_conditions,
+        reference_condition_unique_text_count,
+        reference_condition_unique_text_hashes_md5,
+    ) = _v2_reference_diagnostics(observations_v2)
+    (
+        method_count,
+        comment_count,
+        section_title_count,
+        section_title_hashes_md5,
+    ) = _v2_documentary_counts(produced, observations_v2)
+    meta = produced.get("extraction_metadata") or {}
+
+    return {
+        "status": produced.get("status"),
+        "part_count": len(produced.get("parts") or []),
+        "observation_count": len(observations_v2),
+        "current_representation_count": current_representation_count,
+        "previous_result_count": previous_result_count,
+        "previous_representation_count": previous_representation_count,
+        "reference_rule_count": reference_rule_count,
+        "reference_condition_count": reference_condition_count,
+        "reference_rules_with_conditions": reference_rules_with_conditions,
+        "reference_condition_unique_text_count": reference_condition_unique_text_count,
+        "reference_condition_unique_text_hashes_md5": reference_condition_unique_text_hashes_md5,
+        "method_count": method_count,
+        "comment_count": comment_count,
+        "section_title_count": section_title_count,
+        "section_title_hashes_md5": section_title_hashes_md5,
+        "raw_block_count": len(produced.get("raw_blocks") or []),
+        "unclassified_count": len(produced.get("unclassified_elements") or []),
+        "error_count": len(produced.get("errors") or []),
+        "read_modes": meta.get("read_modes") or [],
+        "current_md5": _diagnostic_md5("\n".join(sorted(current_lines))),
+        "current_set_md5": _diagnostic_md5("\n".join(sorted(current_hashes))),
+    }
+
+
+_V2_DIMENSION_BY_FIELD = {
+    "status": "v2_source",
+    "part_count": "v2_structure",
+    "observation_count": "v2_current",
+    "current_representation_count": "v2_current",
+    "current_md5": "v2_current",
+    "current_set_md5": "v2_current",
+    "previous_result_count": "v2_history",
+    "previous_representation_count": "v2_history",
+    "reference_rule_count": "v2_references",
+    "reference_condition_count": "v2_references",
+    "reference_rules_with_conditions": "v2_references",
+    "reference_condition_unique_text_count": "v2_references",
+    "reference_condition_unique_text_hashes_md5": "v2_references",
+    "method_count": "v2_documentary",
+    "comment_count": "v2_documentary",
+    "section_title_count": "v2_structure",
+    "section_title_hashes_md5": "v2_structure",
+    "raw_block_count": "v2_source",
+    "unclassified_count": "v2_source",
+    "error_count": "v2_source",
+    "read_modes": "v2_source",
+}
+
+
+def _validate_run_v2(reference: dict, produced: dict, run: dict) -> None:
+    for field in (
+        "reader_commit",
+        "schema_version",
+        "provider",
+        "model",
+        "parameters",
+        "prompt_version",
+        "prompt_sha256",
+        "source",
+        "run_date",
+        "duration_ms",
+        "tokens",
+    ):
+        if field not in run:
+            raise InputError(f"Missing run identity field: {field}")
+    if not re.fullmatch(r"[0-9a-f]{40}", run["reader_commit"]):
+        raise InputError("Reader commit must be a full SHA")
+    if not re.fullmatch(r"[0-9a-f]{64}", run["prompt_sha256"]):
+        raise InputError("Record the actual prompt fingerprint, not only its label")
+    for key in ("sha256", "size_bytes", "page_count"):
+        if run["source"].get(key) != reference["source"].get(key):
+            raise InputError(f"PDF identity mismatch: {key}")
+    oracle = reference["reader_v2_oracle"]
+    if (
+        run["schema_version"] != produced.get("schema_version")
+        or produced.get("schema_version") != oracle.get("schema_version")
+    ):
+        raise InputError("Reader v2 content schema versions differ")
+    if produced.get("status") not in ("success", "partial", "error"):
+        raise InputError("Unknown Reader status")
+    meta = produced.get("extraction_metadata") or {}
+    for rk, mk in (
+        ("reader_commit", "module_commit"),
+        ("model", "model"),
+        ("provider", "provider"),
+        ("prompt_version", "prompt_version"),
+    ):
+        if meta.get(mk) is not None and meta[mk] != run[rk]:
+            raise InputError(f"Run manifest contradicts output metadata: {rk}")
+
+
+def compare_v2_oracle(reference: dict, produced: dict, run: dict) -> dict:
+    _validate_run_v2(reference, produced, run)
+    expected = reference["reader_v2_oracle"]["expected"]
+    actual = _v2_metrics(produced)
+    checks = []
+    for field, expected_value in expected.items():
+        actual_value = actual.get(field)
+        dimension = _V2_DIMENSION_BY_FIELD.get(field, "v2_source")
+        checks.append(
+            {
+                "dimension": dimension,
+                "classification": "match" if actual_value == expected_value else "critical_error",
+                "reference_path": f"/reader_v2_oracle/expected/{field}",
+                "expected": expected_value,
+                "actual": actual_value,
+            }
+        )
+
+    counts = Counter(item["classification"] for item in checks)
+    dimensions = {
+        dimension: dict(
+            Counter(
+                item["classification"]
+                for item in checks
+                if item["dimension"] == dimension
+            )
+        )
+        for dimension in DIMENSIONS
+        if any(item["dimension"] == dimension for item in checks)
+    }
+    blocking_errors = counts.get("critical_error", 0)
+    if reference["status"] != "validated":
+        verdict = "CANDIDATE_REFERENCE"
+    elif reference["annotation_status"] != "complete":
+        verdict = "INCOMPLETE"
+    elif blocking_errors:
+        verdict = "FAIL"
+    else:
+        verdict = "PASS"
+
+    return {
+        "benchmark_schema_version": "1.3",
+        "comparison_profile": "reader_v2_oracle",
+        "case_id": reference["case_id"],
+        "reference_version": reference["reference_version"],
+        "reference_status": reference["status"],
+        "annotation_status": reference["annotation_status"],
+        "extraction_status": produced.get("status"),
+        "functional_verdict": verdict,
+        "reference_sha256": fingerprint(canonical(reference).encode()),
+        "output_sha256": fingerprint(canonical(produced).encode()),
+        "run": run,
+        "observations": {
+            "expected": expected.get("observation_count"),
+            "produced": actual.get("observation_count"),
+            "matched": (
+                actual.get("observation_count")
+                if actual.get("current_set_md5") == expected.get("current_set_md5")
+                else 0
+            ),
+            "missing": 0 if actual.get("current_set_md5") == expected.get("current_set_md5") else None,
+            "ambiguous": 0,
+            "unexpected": 0 if actual.get("current_set_md5") == expected.get("current_set_md5") else None,
+        },
+        "counts": dict(counts),
+        "dimensions": dimensions,
+        "checks": checks,
+        "policy": {
+            "matching": "prevalidated source-grounded Reader v2 invariants",
+            "aggregate_score": None,
+            "gate1_validated": False,
+        },
+    }
+
+
 def validate_reference(reference: dict) -> None:
-    if reference.get("reference_schema_version") != "1.1":
+    schema_version = reference.get("reference_schema_version")
+    if schema_version not in ("1.1", "1.2"):
         raise InputError("Unsupported reference schema version")
+    if schema_version == "1.2":
+        _validate_v2_oracle(reference.get("reader_v2_oracle"))
     if reference.get("annotation_status") not in ("incomplete", "complete"):
         raise InputError("annotation_status must be incomplete or complete")
     if reference.get("status") not in ("candidate", "validated"):
@@ -491,6 +898,12 @@ def _structure(doc: dict) -> list:
 
 def compare(reference: dict, produced: dict, run: dict) -> dict:
     validate_reference(reference)
+    if (
+        produced.get("schema_version") == "2.0"
+        and reference.get("reference_schema_version") == "1.2"
+        and reference.get("reader_v2_oracle")
+    ):
+        return compare_v2_oracle(reference, produced, run)
     validate_run(reference,produced,run)
     checks=[]
     def add(dimension, severity, path, expected=None, actual=None, detail=None):
