@@ -34,9 +34,7 @@ def fingerprint(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def reference_payload_sha256(reference: dict) -> str:
-    """Approval covers truth, annotation coverage, PDF identity and reference version."""
-
+def _reference_v11_payload_sha256(reference: dict) -> str:
     keys = (
         "case_id",
         "reference_version",
@@ -46,14 +44,22 @@ def reference_payload_sha256(reference: dict) -> str:
         "observation_inventory",
         "annotation_status",
     )
-    if reference.get("reference_schema_version") == "1.2":
-        keys = ("reference_schema_version", *keys, "reader_v2_oracle")
-        payload = {
-            k: (reference.get(k) if k == "reader_v2_oracle" else reference[k])
-            for k in keys
-        }
-        return fingerprint(canonical(payload).encode())
     return fingerprint(canonical({k: reference[k] for k in keys}).encode())
+
+
+def reference_payload_sha256(reference: dict) -> str:
+    """Approval covers the validated v1 truth plus any versioned v2 oracle."""
+
+    if reference.get("reference_schema_version") != "1.2":
+        return _reference_v11_payload_sha256(reference)
+    payload = {
+        "reference_schema_version": "1.2",
+        "base_reference_payload_sha256": reference.get(
+            "base_reference_payload_sha256"
+        ),
+        "reader_v2_oracle": reference.get("reader_v2_oracle"),
+    }
+    return fingerprint(canonical(payload).encode())
 
 
 def canonical(value: Any) -> str:
@@ -601,6 +607,11 @@ def validate_reference(reference: dict) -> None:
     if schema_version not in ("1.1", "1.2"):
         raise InputError("Unsupported reference schema version")
     if schema_version == "1.2":
+        base_hash = reference.get("base_reference_payload_sha256")
+        if not isinstance(base_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", base_hash):
+            raise InputError("Reference schema 1.2 requires base_reference_payload_sha256")
+        if base_hash != _reference_v11_payload_sha256(reference):
+            raise InputError("Reference schema 1.2 base Gold content changed")
         _validate_v2_oracle(reference.get("reader_v2_oracle"))
     if reference.get("annotation_status") not in ("incomplete", "complete"):
         raise InputError("annotation_status must be incomplete or complete")
