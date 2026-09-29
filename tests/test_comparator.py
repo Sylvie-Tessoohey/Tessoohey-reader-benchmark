@@ -695,5 +695,40 @@ class V2OracleComparatorTests(unittest.TestCase):
     def test_v11_v1_comparison_remains_backward_compatible(self):
         self.assertEqual(compare(*fixtures())["functional_verdict"], "PASS")
 
+    def test_v12_still_compares_v1_against_base_gold(self):
+        reference, _ = v2_reference()
+        _, produced, run = fixtures()
+        self.assertEqual(compare(reference, produced, run)["functional_verdict"], "PASS")
+
+    def test_v2_oracle_rejects_pdf_identity_mismatch(self):
+        reference, run = v2_reference()
+        run["source"]["sha256"] = "c" * 64
+        with self.assertRaises(InputError):
+            compare(reference, v2_output(), run)
+
+    def test_v2_oracle_rejects_invalid_duration(self):
+        reference, run = v2_reference()
+        run["duration_ms"] = -1
+        with self.assertRaises(InputError):
+            compare(reference, v2_output(), run)
+
+    def test_v2_oracle_rejects_inconsistent_token_total(self):
+        reference, run = v2_reference()
+        run["tokens"] = {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 99,
+        }
+        run.pop("tokens_unavailable_reason", None)
+        with self.assertRaises(InputError):
+            compare(reference, v2_output(), run)
+
+    def test_v2_oracle_rejects_prompt_metadata_mismatch(self):
+        reference, run = v2_reference()
+        produced = v2_output()
+        produced["extraction_metadata"]["prompt_version"] = "wrong"
+        with self.assertRaises(InputError):
+            compare(reference, produced, run)
+
 
 if __name__=="__main__":unittest.main()
