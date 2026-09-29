@@ -48,6 +48,11 @@ def reference_payload_sha256(reference: dict) -> str:
     )
     if reference.get("reference_schema_version") == "1.2":
         keys = ("reference_schema_version", *keys, "reader_v2_oracle")
+        payload = {
+            k: (reference.get(k) if k == "reader_v2_oracle" else reference[k])
+            for k in keys
+        }
+        return fingerprint(canonical(payload).encode())
     return fingerprint(canonical({k: reference[k] for k in keys}).encode())
 
 
@@ -577,7 +582,10 @@ def compare_v2_oracle(reference: dict, produced: dict, run: dict) -> dict:
             "ambiguous": 0,
             "unexpected": 0 if actual.get("current_set_md5") == expected.get("current_set_md5") else None,
         },
-        "counts": dict(counts),
+        "counts": {
+            "match": counts.get("match", 0),
+            "critical_error": counts.get("critical_error", 0),
+        },
         "dimensions": dimensions,
         "checks": checks,
         "policy": {
