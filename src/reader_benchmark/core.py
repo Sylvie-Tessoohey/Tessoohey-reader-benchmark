@@ -502,6 +502,17 @@ def _validate_run_v2(reference: dict, produced: dict, run: dict) -> None:
         raise InputError("Reader commit must be a full SHA")
     if not re.fullmatch(r"[0-9a-f]{64}", run["prompt_sha256"]):
         raise InputError("Record the actual prompt fingerprint, not only its label")
+    if not all(
+        isinstance(run[field], str) and run[field]
+        for field in ("provider", "model", "prompt_version", "run_date")
+    ):
+        raise InputError("Run profile fields must be nonempty")
+    if (
+        not isinstance(run["parameters"], dict)
+        or not isinstance(run["duration_ms"], (float, int))
+        or run["duration_ms"] < 0
+    ):
+        raise InputError("Invalid run parameters or duration")
     for key in ("sha256", "size_bytes", "page_count"):
         if run["source"].get(key) != reference["source"].get(key):
             raise InputError(f"PDF identity mismatch: {key}")
@@ -522,6 +533,17 @@ def _validate_run_v2(reference: dict, produced: dict, run: dict) -> None:
     ):
         if meta.get(mk) is not None and meta[mk] != run[rk]:
             raise InputError(f"Run manifest contradicts output metadata: {rk}")
+    if run["tokens"] is not None:
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            if not isinstance(run["tokens"].get(key), int) or run["tokens"][key] < 0:
+                raise InputError("Invalid token usage")
+        if (
+            run["tokens"]["input_tokens"] + run["tokens"]["output_tokens"]
+            != run["tokens"]["total_tokens"]
+        ):
+            raise InputError("Inconsistent token total")
+    elif not run.get("tokens_unavailable_reason"):
+        raise InputError("Explain missing token usage")
 
 
 def compare_v2_oracle(reference: dict, produced: dict, run: dict) -> dict:
