@@ -498,4 +498,186 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(compare(r,p,m)["dimensions"]["provenance"]["critical_error"],1)
 
 
+
+
+def v2_output() -> dict:
+    return {
+        "schema_version": "2.0",
+        "status": "success",
+        "document": {"type": "laboratory_report"},
+        "parts": [
+            {
+                "id": "part_001",
+                "type": "laboratory_report",
+                "sections": [
+                    {
+                        "id": "section_001_001",
+                        "title": "Synthetic section",
+                        "observations": [
+                            {
+                                "id": "section_001_001_obs_001",
+                                "label": "ALPHA",
+                                "measurements": [
+                                    {
+                                        "id": "section_001_001_obs_001_m_001",
+                                        "representations": [
+                                            {
+                                                "id": "section_001_001_obs_001_m_001_r_001",
+                                                "kind": "numeric",
+                                                "value": "3",
+                                                "unit": "unit-A",
+                                                "comparator": None,
+                                                "provenance": {
+                                                    "zones": [
+                                                        {
+                                                            "order": 1,
+                                                            "page": 1,
+                                                            "x1": 10,
+                                                            "y1": 10,
+                                                            "x2": 180,
+                                                            "y2": 20,
+                                                        }
+                                                    ],
+                                                    "block_ids": ["b1"],
+                                                },
+                                            }
+                                        ],
+                                        "references": [],
+                                        "previous_results": [],
+                                        "comments": [],
+                                        "interpretation": [],
+                                    }
+                                ],
+                                "references": [],
+                                "previous_results": [],
+                                "comments": [],
+                                "context": [],
+                                "provenance": {
+                                    "zones": [
+                                        {
+                                            "order": 1,
+                                            "page": 1,
+                                            "x1": 10,
+                                            "y1": 10,
+                                            "x2": 180,
+                                            "y2": 20,
+                                        }
+                                    ],
+                                    "block_ids": ["b1"],
+                                },
+                            }
+                        ],
+                        "subsections": [],
+                        "comments": [],
+                    }
+                ],
+                "subparts": [],
+                "collection_context": [],
+                "metadata": [],
+            }
+        ],
+        "raw_blocks": [
+            {
+                "id": "b1",
+                "page": 1,
+                "order": 1,
+                "text": "ALPHA 3 unit-A",
+                "zone": {
+                    "order": 1,
+                    "page": 1,
+                    "x1": 10,
+                    "y1": 10,
+                    "x2": 180,
+                    "y2": 20,
+                },
+                "read_mode": "text_layer",
+            }
+        ],
+        "unclassified_elements": [],
+        "errors": [],
+        "extraction_metadata": {
+            "module_commit": "a" * 40,
+            "provider": "synthetic",
+            "model": "fake",
+            "prompt_version": "v2-test",
+            "read_modes": ["text_layer"],
+        },
+    }
+
+
+def v2_reference() -> tuple[dict, dict]:
+    reference, _, run = fixtures()
+    reference["reference_schema_version"] = "1.2"
+    reference["reference_version"] = "2"
+    reference["reader_v2_oracle"] = {
+        "oracle_version": "1",
+        "schema_version": "2.0",
+        "comparison_profile": "documentary-v2-oracle-1",
+        "expected": {
+            "status": "success",
+            "part_count": 1,
+            "observation_count": 1,
+            "current_representation_count": 1,
+            "previous_result_count": 0,
+            "previous_representation_count": 0,
+            "reference_rule_count": 0,
+            "method_count": 0,
+            "comment_count": 0,
+            "section_title_count": 1,
+            "raw_block_count": 1,
+            "unclassified_count": 0,
+            "error_count": 0,
+            "read_modes": ["text_layer"],
+            "current_set_md5": "3b52950db44e9f1ee6360b19e6c41c8e",
+        },
+    }
+    approve(reference)
+    run["schema_version"] = "2.0"
+    run["reader_commit"] = "a" * 40
+    run["provider"] = "synthetic"
+    run["model"] = "fake"
+    run["prompt_version"] = "v2-test"
+    return reference, run
+
+
+class V2OracleComparatorTests(unittest.TestCase):
+    def test_v12_approval_hash_covers_v2_oracle(self):
+        reference, _ = v2_reference()
+        approved = reference["validation"]["reference_payload_sha256"]
+        reference["reader_v2_oracle"]["expected"]["observation_count"] = 2
+        self.assertNotEqual(reference_payload_sha256(reference), approved)
+        with self.assertRaises(InputError):
+            compare(reference, v2_output(), v2_reference()[1])
+
+    def test_v12_requires_v2_oracle(self):
+        reference, _, _ = fixtures()
+        reference["reference_schema_version"] = "1.2"
+        approve(reference)
+        with self.assertRaises(InputError):
+            compare(reference, v2_output(), v2_reference()[1])
+
+    def test_v2_oracle_exact_output_passes(self):
+        reference, run = v2_reference()
+        report = compare(reference, v2_output(), run)
+        self.assertEqual(report["comparison_profile"], "reader_v2_oracle")
+        self.assertEqual(report["functional_verdict"], "PASS")
+        self.assertEqual(report["counts"]["critical_error"], 0)
+
+    def test_v2_oracle_detects_current_value_change(self):
+        reference, run = v2_reference()
+        produced = v2_output()
+        produced["parts"][0]["sections"][0]["observations"][0]["measurements"][0][
+            "representations"
+        ][0]["value"] = "4"
+        report = compare(reference, produced, run)
+        self.assertEqual(report["functional_verdict"], "FAIL")
+        self.assertGreater(
+            report["dimensions"]["v2_current"]["critical_error"],
+            0,
+        )
+
+    def test_v11_v1_comparison_remains_backward_compatible(self):
+        self.assertEqual(compare(*fixtures())["functional_verdict"], "PASS")
+
+
 if __name__=="__main__":unittest.main()
