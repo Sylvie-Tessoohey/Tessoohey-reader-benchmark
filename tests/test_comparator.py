@@ -607,8 +607,10 @@ def v2_output() -> dict:
 
 def v2_reference() -> tuple[dict, dict]:
     reference, _, run = fixtures()
+    reference["base_reference_payload_sha256"] = reference["validation"][
+        "reference_payload_sha256"
+    ]
     reference["reference_schema_version"] = "1.2"
-    reference["reference_version"] = "2"
     reference["reader_v2_oracle"] = {
         "oracle_version": "1",
         "schema_version": "2.0",
@@ -651,10 +653,24 @@ class V2OracleComparatorTests(unittest.TestCase):
 
     def test_v12_requires_v2_oracle(self):
         reference, _, _ = fixtures()
+        reference["base_reference_payload_sha256"] = reference["validation"][
+            "reference_payload_sha256"
+        ]
         reference["reference_schema_version"] = "1.2"
         approve(reference)
         with self.assertRaises(InputError):
             compare(reference, v2_output(), v2_reference()[1])
+
+    def test_v12_rejects_tampered_base_gold_content(self):
+        reference, run = v2_reference()
+        reference["documentary_json"]["parts"][0]["sections"][0]["observations"][0][
+            "source_label"
+        ] = "TAMPERED"
+        reference["validation"]["reference_payload_sha256"] = (
+            reference_payload_sha256(reference)
+        )
+        with self.assertRaises(InputError):
+            compare(reference, v2_output(), run)
 
     def test_v2_oracle_exact_output_passes(self):
         reference, run = v2_reference()
